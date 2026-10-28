@@ -67,14 +67,14 @@ All links below always point to the **latest release**.
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v150.png) | ![Editor](docs/editor-v150.png) |
+| ![Hub](docs/hub-v151.png) | ![Editor](docs/editor-v151.png) |
 
 <p align="center">
-  <img src="docs/ai-v150.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v151.png" alt="eLuajs AI assistant">
 </p>
 
 <p align="center">
-  <img src="docs/build-v150.png" alt="eLuajs build output window">
+  <img src="docs/build-v151.png" alt="eLuajs build output window">
 </p>
 
 ## Features

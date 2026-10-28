@@ -208,8 +208,12 @@ public final class BuildDialog extends JDialog {
         progress.setBorderPainted(false);
         footer.add(progress, BorderLayout.CENTER);
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 7, 0));
+        JPanel actions = new JPanel(new BorderLayout(8, 0));
         actions.setOpaque(false);
+        JPanel secondaryActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 7, 0));
+        secondaryActions.setOpaque(false);
+        JPanel primaryActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 7, 0));
+        primaryActions.setOpaque(false);
         prepare.addActionListener(e -> prepareSdk());
         build.addActionListener(e -> buildApk());
         buildAab.addActionListener(e -> showAabSigning());
@@ -227,12 +231,14 @@ public final class BuildDialog extends JDialog {
                 buildFix.accept(lastFailureLog);
             }
         });
-        actions.add(goIssue);
-        actions.add(prepare);
-        actions.add(openApk);
-        actions.add(adbInstall);
-        actions.add(build);
-        actions.add(buildAab);
+        secondaryActions.add(goIssue);
+        secondaryActions.add(prepare);
+        secondaryActions.add(openApk);
+        secondaryActions.add(adbInstall);
+        primaryActions.add(build);
+        primaryActions.add(buildAab);
+        actions.add(secondaryActions, BorderLayout.WEST);
+        actions.add(primaryActions, BorderLayout.EAST);
         footer.add(actions, BorderLayout.SOUTH);
         root.add(footer, BorderLayout.SOUTH);
         getRootPane().setDefaultButton(buildAab);
