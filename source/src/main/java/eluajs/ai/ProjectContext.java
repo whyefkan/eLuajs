@@ -114,13 +114,29 @@ public final class ProjectContext {
         return tree.toString();
     }
 
+    /** Resolves a model-supplied relative path, rejecting escapes and generated/output folders. */
+    public static Path safeResolve(Path root, String relative) {
+        if (root == null || relative == null) return null;
+        String rel = relative.trim().replace('\\', '/');
+        if (rel.isEmpty() || rel.startsWith("/") || rel.startsWith("\\") || rel.matches("^[A-Za-z]:.*")) return null;
+        Path base = root.toAbsolutePath().normalize();
+        Path target;
+        try { target = base.resolve(rel).normalize(); }
+        catch (Exception ex) { return null; }
+        if (!target.startsWith(base) || target.equals(base)) return null;
+        for (Path part : base.relativize(target)) {
+            if ("..".equals(part.toString()) || SKIP_DIRS.contains(part.toString())) return null;
+        }
+        if (!isText(target)) return null;
+        return target;
+    }
+
     /** Reads one requested project file for the on-demand AI protocol. */
     public static String readTextFile(Path root, String relative, int maxChars) {
         if (root == null || relative == null || relative.isBlank()) return null;
         try {
-            Path base = root.toAbsolutePath().normalize();
-            Path file = base.resolve(relative.trim()).normalize();
-            if (!file.startsWith(base) || !Files.isRegularFile(file) || !isText(file)) return null;
+            Path file = safeResolve(root, relative);
+            if (file == null || !Files.isRegularFile(file)) return null;
             if (Files.size(file) > MAX_FILE_BYTES) return null;
             String text = Files.readString(file, StandardCharsets.UTF_8);
             if (text.indexOf('\u0000') >= 0) return null;

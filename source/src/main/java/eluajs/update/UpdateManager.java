@@ -153,7 +153,11 @@ public final class UpdateManager {
                 + "if exist \"%~dp0..\\eLuajs.bat\" (\r\n"
                 + "  start \"\" \"%~dp0..\\eLuajs.bat\"\r\n"
                 + ") else (\r\n"
-                + "  start \"\" \"%~dp0..\\runtime\\bin\\javaw.exe\" -Xms64m -Xmx1024m -jar \"%~dp0eLuajs.jar\"\r\n"
+                + "  if exist \"%~dp0..\\eLuajs.exe\" (\r\n"
+                + "    start \"\" \"%~dp0..\\eLuajs.exe\"\r\n"
+                + "  ) else (\r\n"
+                + "    start \"\" \"%~dp0..\\runtime\\bin\\javaw.exe\" -Xms64m -Xmx1024m -jar \"%~dp0eLuajs.jar\"\r\n"
+                + "  )\r\n"
                 + ")\r\n"
                 + "del \"%~f0\"\r\n";
         Files.writeString(batch, script, java.nio.charset.StandardCharsets.UTF_8);
@@ -167,8 +171,11 @@ public final class UpdateManager {
         ProcessBuilder builder;
         if (Platform.isWindows()) {
             Path bat = appRoot.resolve("eLuajs.bat");
+            Path exe = appRoot.resolve("eLuajs.exe");
             if (Files.isRegularFile(bat)) {
                 builder = new ProcessBuilder("cmd.exe", "/c", "start", "", bat.toString());
+            } else if (Files.isRegularFile(exe)) {
+                builder = new ProcessBuilder(exe.toString());
             } else {
                 Path javaw = appRoot.resolve("runtime/bin/javaw.exe");
                 if (!Files.isRegularFile(javaw)) javaw = appRoot.resolve("runtime/bin/java.exe");

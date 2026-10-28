@@ -37,6 +37,10 @@ jobs:
           chmod +x dist/eLuajs/eLuajs
           cd dist
           zip -r ../eLuajs-linux-x86_64.zip eLuajs
+          tar -czf /tmp/eluajs-payload.tar.gz eLuajs
+          cd ..
+          cat source/packaging/linux-installer.sh /tmp/eluajs-payload.tar.gz > eLuajs-linux-x86_64.run
+          chmod +x eLuajs-linux-x86_64.run
       - name: Stage jar for release
         run: cp source/out/eLuajs.jar eLuajs.jar
       - uses: actions/upload-artifact@v4
@@ -44,6 +48,7 @@ jobs:
           name: linux
           path: |
             eLuajs-linux-x86_64.zip
+            eLuajs-linux-x86_64.run
             eLuajs.jar
 
   windows:
@@ -57,6 +62,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Install WiX Toolset
+        shell: powershell
+        run: choco install wixtoolset --version=3.14.1 -y --no-progress
       - name: Build eLuajs.jar
         run: |
           cd source
@@ -66,20 +74,24 @@ jobs:
           export JAVA_HOME="$(cygpath -u "$JAVA_HOME")"
           chmod +x source/packaging/build_runtime.sh
           source/packaging/build_runtime.sh runtime
-      - name: Package Windows
+      - name: Build Windows installer
         run: |
-          rm -rf dist
-          mkdir -p dist/eLuajs/app
-          cp source/out/eLuajs.jar dist/eLuajs/app/
-          cp -r runtime dist/eLuajs/runtime
-          cp source/packaging/eLuajs.bat dist/eLuajs/
-          cp eLuajs-icon.png README.md LICENSE dist/eLuajs/
-          cd dist
-          powershell -Command "Compress-Archive -Path 'eLuajs' -DestinationPath '../eLuajs-windows-x86_64.zip' -Force"
+          rm -rf dist-installer dist/jpackage-input
+          mkdir -p dist/jpackage-input
+          cp source/out/eLuajs.jar dist/jpackage-input/
+          VERSION="${GITHUB_REF_NAME#v}"
+          case "$VERSION" in *.*.*) ;; *.*) VERSION="$VERSION.0" ;; *) VERSION="$VERSION.0.0" ;; esac
+          jpackage --type exe --name eLuajs --app-version "$VERSION" \
+            --vendor "Efkwn Mobile" --description "Lightweight Android Java IDE" \
+            --input dist/jpackage-input --main-jar eLuajs.jar --main-class eluajs.Main \
+            --runtime-image runtime --icon eLuajs.ico \
+            --win-shortcut --win-menu --win-dir-chooser --win-per-user-install \
+            --dest dist-installer
+          cp dist-installer/*.exe eLuajs-windows-x86_64.exe
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: eLuajs-windows-x86_64.zip
+          path: eLuajs-windows-x86_64.exe
 
   release:
     needs: [linux, windows]

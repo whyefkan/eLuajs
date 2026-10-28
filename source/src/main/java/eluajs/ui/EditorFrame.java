@@ -57,7 +57,9 @@ public final class EditorFrame extends JFrame {
                 () -> openedFile == null ? t("Dosya seçin") : meta.rootDir().relativize(openedFile).toString(),
                 () -> openedFile,
                 meta.rootDir(),
-                this::hideAiPanel);
+                this::hideAiPanel,
+                this::saveCurrentSilently,
+                this::refreshAfterAiEdit);
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setIconImage(Ui.appIcon());
         setSize(1320, 820);
@@ -409,6 +411,33 @@ public final class EditorFrame extends JFrame {
         if (aiActivity != null) aiActivity.setActive(false);
         revalidate();
         repaint();
+    }
+
+    private void refreshAfterAiEdit() {
+        reloadTree();
+        if (openedFile != null && !Files.isRegularFile(openedFile)) {
+            appendConsole(t("AI deleted the open file: %s", meta.rootDir().relativize(openedFile)));
+            openedFile = null;
+            editor.setText("");
+            dirty = false;
+            currentFile.setText(t("Dosya seçin"));
+            breadcrumb.setText("");
+            updateEditorStatus();
+            return;
+        }
+        if (openedFile == null) return;
+        if (dirty) {
+            appendConsole(t("AI updated project files. The open file has unsaved changes, so it was not reloaded automatically."));
+            return;
+        }
+        try {
+            editor.setFile(openedFile, Files.readString(openedFile, StandardCharsets.UTF_8));
+            dirty = false;
+            updateEditorStatus();
+            appendConsole(t("AI updated: %s", meta.rootDir().relativize(openedFile)));
+        } catch (IOException ex) {
+            appendConsole(t("Could not reload the file after AI edits: %s", ex.getMessage()));
+        }
     }
 
     private void openSettings() {

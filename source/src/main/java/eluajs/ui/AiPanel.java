@@ -7,6 +7,7 @@ import eluajs.ai.AiPricing;
 import eluajs.ai.AiProvider;
 import eluajs.ai.AiResult;
 import eluajs.ai.ProjectContext;
+import eluajs.util.FileUtil;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -14,9 +15,14 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,20 +33,22 @@ import static eluajs.util.I18n.t;
 public final class AiPanel extends JPanel {
     private static final Pattern CODE_BLOCK = Pattern.compile(
             "(?s)```[ \\t]*[A-Za-z0-9_+.#-]*[ \\t]*\\R(.*?)```");
+    private static final Pattern WRITE_BLOCK = Pattern.compile(
+            "(?ms)^[ \\t]*WRITE:[ \\t]*(.+?)[ \\t]*\\R[ \\t]*```[^\\n]*\\R(.*?)```[ \\t]*");
     private static final String SYSTEM_PROMPT = """
-            You are eLuajs AI, an expert Android Java assistant integrated into the eLuajs IDE.
+            You are eLuajs AI, an autonomous Android Java coding agent integrated into the eLuajs IDE.
             eLuajs creates real Android Gradle projects with Java + XML and builds APKs/AABs.
             Keep solutions lightweight and compatible with old computers.
-            You may receive the project file tree. Use the READ protocol supplied in the conversation
-            to inspect files yourself instead of asking the user to paste them.
-            When you provide code, return it in a fenced code block such as ```java ... ```.
-            Prefer complete, compilable files when the user asks for a change. Do not invent APIs.
+            You can inspect and edit project files using the protocols supplied in the conversation.
+            Never invent APIs. Prefer complete, compilable files when editing.
+            If project editing is not available, return code in a fenced block and explain where to apply it.
             """;
 
     private static final int MAX_FILE_ROUNDS = 3;
     private static final int MAX_FILES_PER_REQUEST = 4;
     private static final int MAX_FILE_CHARS = 20_000;
     private static final int MAX_TOTAL_FILE_CHARS = 60_000;
+    private static final int MAX_WRITE_CHARS = 500_000;
     private static final int AI_TEXT_WIDTH = 312;
     private static final int USER_TEXT_WIDTH = 238;
 
@@ -49,6 +57,8 @@ public final class AiPanel extends JPanel {
     private final Supplier<Path> currentFile;
     private final Path projectRoot;
     private final Runnable onClose;
+    private final Runnable beforeSend;
+    private final Runnable afterFilesChanged;
 
     private AiConfig config = AiConfig.load();
     private AiProvider lastProvider;
@@ -57,7 +67,7 @@ public final class AiPanel extends JPanel {
 
     private final JComboBox<AiProvider> providerCombo = new JComboBox<>(AiProvider.values());
     private final JComboBox<String> modelCombo = new JComboBox<>();
-    private final JCheckBox wholeProject = new JCheckBox(t("Let AI read project files"));
+    private final JCheckBox wholeProject = new JCheckBox(t("Let AI read and edit project files"));
     private final JTextArea prompt = new JTextArea();
     private final JPanel conversation = new JPanel();
     private final JScrollPane conversationScroll;
@@ -69,19 +79,23 @@ public final class AiPanel extends JPanel {
     private long sessionCompletion;
     private long sessionTotal;
     private double sessionCost;
-    private final JButton insert = small(t("Insert into editor"));
+    private final JButton insert = small(t("Replace file"));
     private final JButton replace = small(t("Replace selection"));
     private final JButton copy = small(t("Copy"));
+    private final JButton undoEdits = small(t("Undo AI edits"));
+    private Map<Path, String> lastUndo = new LinkedHashMap<>();
     private boolean loadingProvider;
 
     public AiPanel(SyntaxEditorPane editor, Supplier<String> fileLabel, Supplier<Path> currentFile,
-                   Path projectRoot, Runnable onClose) {
+                   Path projectRoot, Runnable onClose, Runnable beforeSend, Runnable afterFilesChanged) {
         super(new BorderLayout());
         this.editor = editor;
         this.fileLabel = fileLabel;
         this.currentFile = currentFile;
         this.projectRoot = projectRoot;
         this.onClose = onClose;
+        this.beforeSend = beforeSend;
+        this.afterFilesChanged = afterFilesChanged;
         setBackground(Theme.PANEL);
         setPreferredSize(new Dimension(400, 1));
         setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, Theme.BORDER_SOFT));
@@ -152,7 +166,7 @@ public final class AiPanel extends JPanel {
         wholeProject.setFocusPainted(false);
         wholeProject.setSelected(true);
         wholeProject.setAlignmentX(Component.LEFT_ALIGNMENT);
-        wholeProject.setToolTipText(t("AI sees the file tree and reads files on demand, keeping token use low."));
+        wholeProject.setToolTipText(t("AI can read and write project files directly. Reads happen on demand to save tokens."));
         root.add(wholeProject);
         root.add(Box.createVerticalStrut(4));
 
@@ -196,15 +210,21 @@ public final class AiPanel extends JPanel {
         insert.setEnabled(false);
         replace.setEnabled(false);
         copy.setEnabled(false);
+        undoEdits.setEnabled(false);
+        undoEdits.setToolTipText(t("Restore the files changed by the last AI edit."));
+        insert.setToolTipText(t("Replace the whole open file with the generated code."));
+        replace.setToolTipText(t("Replace only the selected text with the generated code."));
         insert.addActionListener(e -> insertCode(false));
         replace.addActionListener(e -> insertCode(true));
         copy.addActionListener(e -> {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(lastResponse), null);
             status.setText(t("Copied to clipboard."));
         });
+        undoEdits.addActionListener(e -> undoAiEdits());
         actions.add(insert);
         actions.add(replace);
         actions.add(copy);
+        actions.add(undoEdits);
         root.add(actions);
         root.add(Box.createVerticalStrut(7));
 
@@ -307,6 +327,8 @@ public final class AiPanel extends JPanel {
         conversation.removeAll();
         history.clear();
         lastResponse = "";
+        lastUndo = new LinkedHashMap<>();
+        undoEdits.setEnabled(false);
         setActionsEnabled(false);
         working.stop();
         sessionPrompt = 0;
@@ -322,7 +344,7 @@ public final class AiPanel extends JPanel {
     }
 
     private void addWelcomeMessage() {
-        addBubble(false, t("Ask me to inspect the project, write code, or fix an error. I can read project files on demand, so token use stays economical."), false);
+        addBubble(false, t("Ask me to inspect or change the project. I can read and edit files directly, and token use stays economical."), false);
     }
 
     private void send() {
@@ -342,6 +364,8 @@ public final class AiPanel extends JPanel {
             return;
         }
 
+        if (beforeSend != null) beforeSend.run();
+
         addBubble(true, text, false);
         history.add(AiMessage.user(text));
         prompt.setText("");
@@ -353,19 +377,33 @@ public final class AiPanel extends JPanel {
 
         JComponent pending = addBubble(false, t("Thinking..."), false);
         List<AiMessage> messages = new ArrayList<>(history);
-        boolean projectAccess = wholeProject.isSelected() && projectRoot != null && java.nio.file.Files.isDirectory(projectRoot);
+        boolean projectAccess = wholeProject.isSelected() && projectRoot != null && Files.isDirectory(projectRoot);
         String system = buildSystemPrompt(projectAccess);
 
-        SwingWorker<LoopResult, String[]> worker = new SwingWorker<>() {
+        SwingWorker<LoopResult, ProgressEvent> worker = new SwingWorker<>() {
             @Override protected LoopResult doInBackground() throws Exception {
-                return runAiLoop(system, messages, projectAccess, names -> publish(names.toArray(String[]::new)));
+                return runAiLoop(system, messages, projectAccess, event -> publish(event));
             }
-            @Override protected void process(java.util.List<String[]> chunks) {
-                for (String[] names : chunks) {
-                    String list = String.join(", ", names);
-                    status.setText(t("Reading: %s", list));
-                    status.setForeground(Theme.BLUE);
-                    addSystemNote(t("Reading: %s", list));
+            @Override protected void process(List<ProgressEvent> chunks) {
+                for (ProgressEvent event : chunks) {
+                    String list = String.join(", ", event.paths());
+                    switch (event.kind()) {
+                        case READ -> {
+                            status.setText(t("Reading: %s", list));
+                            status.setForeground(Theme.BLUE);
+                            addSystemNote(t("Reading: %s", list));
+                        }
+                        case WRITE -> {
+                            status.setText(t("Writing: %s", list));
+                            status.setForeground(Theme.ACCENT);
+                            addSystemNote(t("Updated: %s", list));
+                        }
+                        case DELETE -> {
+                            status.setText(t("Deleting: %s", list));
+                            status.setForeground(Theme.DANGER);
+                            addSystemNote(t("Deleted: %s", list));
+                        }
+                    }
                 }
             }
             @Override protected void done() {
@@ -386,6 +424,10 @@ public final class AiPanel extends JPanel {
                                 AiPricing.formatTokens(result.promptTokens()),
                                 AiPricing.formatTokens(result.completionTokens()),
                                 AiPricing.formatCost(result.cost())));
+                    }
+                    if (!lastUndo.isEmpty()) undoEdits.setEnabled(true);
+                    if (result.filesChanged() && afterFilesChanged != null) {
+                        SwingUtilities.invokeLater(afterFilesChanged);
                     }
                     updateUsageLabel();
                     setActionsEnabled(true);
@@ -411,7 +453,7 @@ public final class AiPanel extends JPanel {
         scrollToBottom();
     }
 
-    private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, java.util.function.Consumer<List<String>> progress) throws Exception {
+    private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, Consumer<ProgressEvent> progress) throws Exception {
         List<AiMessage> convo = new ArrayList<>(initial);
         int totalRead = 0;
         long promptTokens = 0, completionTokens = 0, totalTokens = 0;
@@ -425,9 +467,15 @@ public final class AiPanel extends JPanel {
             totalTokens += result.total();
             cost += AiPricing.estimate(usedProvider, usedModel, result.promptTokens(), result.completionTokens());
             String answer = result.text();
+
+            EditOutcome edit = projectAccess ? applyEditsIfPresent(answer, progress) : EditOutcome.NONE;
+            if (edit.hasEdits()) {
+                return new LoopResult(edit.summary(), promptTokens, completionTokens, totalTokens, cost, edit.changed());
+            }
+
             List<String> requests = projectAccess ? parseReadRequests(answer) : List.of();
             if (requests.isEmpty()) {
-                return new LoopResult(answer, promptTokens, completionTokens, totalTokens, cost);
+                return new LoopResult(answer, promptTokens, completionTokens, totalTokens, cost, false);
             }
             if (round >= MAX_FILE_ROUNDS) {
                 convo.add(AiMessage.assistant(answer));
@@ -437,12 +485,16 @@ public final class AiPanel extends JPanel {
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();
                 cost += AiPricing.estimate(usedProvider, usedModel, last.promptTokens(), last.completionTokens());
-                return new LoopResult(last.text(), promptTokens, completionTokens, totalTokens, cost);
+                EditOutcome lastEdit = projectAccess ? applyEditsIfPresent(last.text(), progress) : EditOutcome.NONE;
+                if (lastEdit.hasEdits()) {
+                    return new LoopResult(lastEdit.summary(), promptTokens, completionTokens, totalTokens, cost, lastEdit.changed());
+                }
+                return new LoopResult(last.text(), promptTokens, completionTokens, totalTokens, cost, false);
             }
             convo.add(AiMessage.assistant(answer));
             String contents = readRequestedFiles(requests, MAX_TOTAL_FILE_CHARS - totalRead);
             totalRead += contents.length();
-            progress.accept(requests);
+            progress.accept(new ProgressEvent(EventKind.READ, requests));
             convo.add(AiMessage.user("REQUESTED FILE CONTENTS:\n" + contents));
             if (totalRead >= MAX_TOTAL_FILE_CHARS) {
                 convo.add(AiMessage.user("FILE READ LIMIT REACHED. Give the final answer now."));
@@ -451,9 +503,149 @@ public final class AiPanel extends JPanel {
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();
                 cost += AiPricing.estimate(usedProvider, usedModel, last.promptTokens(), last.completionTokens());
-                return new LoopResult(last.text(), promptTokens, completionTokens, totalTokens, cost);
+                EditOutcome lastEdit = projectAccess ? applyEditsIfPresent(last.text(), progress) : EditOutcome.NONE;
+                if (lastEdit.hasEdits()) {
+                    return new LoopResult(lastEdit.summary(), promptTokens, completionTokens, totalTokens, cost, lastEdit.changed());
+                }
+                return new LoopResult(last.text(), promptTokens, completionTokens, totalTokens, cost, false);
             }
         }
+    }
+
+    private EditOutcome applyEditsIfPresent(String answer, Consumer<ProgressEvent> progress) {
+        List<FileWrite> writes = parseWrites(answer);
+        List<String> deletes = parseDeletes(answer);
+        if (writes.isEmpty() && deletes.isEmpty()) return EditOutcome.NONE;
+        ApplyResult applied = applyEdits(writes, deletes, progress);
+        String summary = stripEditCommands(answer);
+        if (applied.changed() == 0) {
+            if (!applied.errors().isEmpty()) summary = t("AI could not apply changes: %s", String.join("; ", applied.errors()));
+            else if (summary.isBlank()) summary = t("No files were changed.");
+        } else if (summary.isBlank()) {
+            summary = t("Updated %d files.", applied.changed());
+        }
+        if (!applied.errors().isEmpty() && !summary.contains(applied.errors().get(0))) {
+            summary += "\n\n" + t("Skipped: %s", String.join("; ", applied.errors()));
+        }
+        return new EditOutcome(true, summary, applied.changed() > 0);
+    }
+
+    private ApplyResult applyEdits(List<FileWrite> writes, List<String> deletes, Consumer<ProgressEvent> progress) {
+        Map<Path, String> undo = new LinkedHashMap<>();
+        List<String> errors = new ArrayList<>();
+        int changed = 0;
+        for (FileWrite write : writes) {
+            Path target = ProjectContext.safeResolve(projectRoot, write.path());
+            if (target == null) { errors.add(write.path() + " (not allowed)"); continue; }
+            if (write.content().length() > MAX_WRITE_CHARS) { errors.add(write.path() + " (too large)"); continue; }
+            try {
+                if (Files.isRegularFile(target)) {
+                    undo.putIfAbsent(target, Files.readString(target, StandardCharsets.UTF_8));
+                    FileUtil.recoveryCopy(projectRoot, target);
+                } else {
+                    undo.putIfAbsent(target, null);
+                }
+                FileUtil.writeStringAtomic(target, write.content());
+                changed++;
+                progress.accept(new ProgressEvent(EventKind.WRITE, List.of(rel(target))));
+            } catch (Exception ex) {
+                errors.add(write.path() + ": " + ex.getMessage());
+            }
+        }
+        for (String delete : deletes) {
+            Path target = ProjectContext.safeResolve(projectRoot, delete);
+            if (target == null) { errors.add(delete + " (not allowed)"); continue; }
+            if (!Files.isRegularFile(target)) { errors.add(delete + " (not found)"); continue; }
+            try {
+                undo.putIfAbsent(target, Files.readString(target, StandardCharsets.UTF_8));
+                FileUtil.recoveryCopy(projectRoot, target);
+                Files.delete(target);
+                changed++;
+                progress.accept(new ProgressEvent(EventKind.DELETE, List.of(delete)));
+            } catch (Exception ex) {
+                errors.add(delete + ": " + ex.getMessage());
+            }
+        }
+        lastUndo = undo;
+        return new ApplyResult(changed, errors);
+    }
+
+    private List<FileWrite> parseWrites(String answer) {
+        List<FileWrite> out = new ArrayList<>();
+        if (answer == null) return out;
+        Matcher matcher = WRITE_BLOCK.matcher(answer);
+        while (matcher.find()) {
+            String path = matcher.group(1).trim();
+            String content = matcher.group(2);
+            if (!path.isBlank() && !content.isEmpty()) {
+                if (!content.endsWith("\n")) content += "\n";
+                out.add(new FileWrite(path, content));
+            }
+        }
+        return out;
+    }
+
+    private List<String> parseDeletes(String answer) {
+        List<String> out = new ArrayList<>();
+        if (answer == null) return out;
+        String rest = WRITE_BLOCK.matcher(answer).replaceAll("");
+        boolean inFence = false;
+        for (String raw : rest.split("\\R")) {
+            String line = raw.trim();
+            if (line.startsWith("```")) { inFence = !inFence; continue; }
+            if (inFence) continue;
+            if (line.regionMatches(true, 0, "DELETE:", 0, 7)) {
+                String path = line.substring(7).trim();
+                if (path.startsWith("`") && path.endsWith("`") && path.length() > 1) path = path.substring(1, path.length() - 1).trim();
+                if (!path.isBlank() && !out.contains(path)) out.add(path);
+            }
+        }
+        return out;
+    }
+
+    private String stripEditCommands(String answer) {
+        String rest = WRITE_BLOCK.matcher(answer).replaceAll("");
+        StringBuilder out = new StringBuilder();
+        boolean inFence = false;
+        for (String line : rest.split("\\R", -1)) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("```")) {
+                inFence = !inFence;
+                out.append(line).append('\n');
+                continue;
+            }
+            if (!inFence && trimmed.regionMatches(true, 0, "DELETE:", 0, 7)) continue;
+            out.append(line).append('\n');
+        }
+        return out.toString().trim();
+    }
+
+    private String rel(Path path) {
+        return projectRoot.toAbsolutePath().normalize().relativize(path.toAbsolutePath().normalize()).toString();
+    }
+
+    private void undoAiEdits() {
+        if (lastUndo.isEmpty()) return;
+        List<String> errors = new ArrayList<>();
+        for (Map.Entry<Path, String> entry : lastUndo.entrySet()) {
+            try {
+                if (entry.getValue() == null) Files.deleteIfExists(entry.getKey());
+                else FileUtil.writeStringAtomic(entry.getKey(), entry.getValue());
+            } catch (Exception ex) {
+                errors.add(rel(entry.getKey()) + ": " + ex.getMessage());
+            }
+        }
+        lastUndo = new LinkedHashMap<>();
+        undoEdits.setEnabled(false);
+        if (errors.isEmpty()) {
+            addSystemNote(t("AI edits undone."));
+            status.setText(t("AI edits undone."));
+            status.setForeground(Theme.ACCENT);
+        } else {
+            status.setText(t("Undo failed: %s", String.join("; ", errors)));
+            status.setForeground(Theme.DANGER);
+        }
+        if (afterFilesChanged != null) afterFilesChanged.run();
     }
 
     private void updateUsageLabel() {
@@ -465,17 +657,37 @@ public final class AiPanel extends JPanel {
         }
     }
 
-    private record LoopResult(String text, long promptTokens, long completionTokens, long totalTokens, double cost) { }
+    private record LoopResult(String text, long promptTokens, long completionTokens, long totalTokens, double cost, boolean filesChanged) { }
+    private record ProgressEvent(EventKind kind, List<String> paths) { }
+    private record FileWrite(String path, String content) { }
+    private record ApplyResult(int changed, List<String> errors) { }
+    private record EditOutcome(boolean hasEdits, String summary, boolean changed) {
+        static final EditOutcome NONE = new EditOutcome(false, "", false);
+    }
+    private enum EventKind { READ, WRITE, DELETE }
 
     private String buildSystemPrompt(boolean projectAccess) {
         StringBuilder b = new StringBuilder(SYSTEM_PROMPT);
         if (projectAccess) {
             b.append("\n\nPROJECT FILE TREE:\n").append(ProjectContext.tree(projectRoot));
-            b.append("\nFILE READING PROTOCOL:\n")
-                    .append("If you need to inspect files, reply with ONLY lines in this exact format:\n")
+            b.append("\nPROJECT ACCESS PROTOCOL:\n")
+                    .append("You can inspect files by replying with ONLY READ lines:\n")
                     .append("READ: relative/path/File.java\n")
-                    .append("You can request up to 4 files per turn. Do not include explanations in that reply. ")
-                    .append("Do not ask the user to paste files; request them with READ.\n");
+                    .append("(up to 4 files per turn, no other text in that reply)\n\n")
+                    .append("You can write complete files with:\n")
+                    .append("WRITE: relative/path/File.java\n")
+                    .append("```java\n<complete file content>\n```\n\n")
+                    .append("You can delete files with:\n")
+                    .append("DELETE: relative/path/File.java\n\n")
+                    .append("Rules:\n")
+                    .append("- When the user asks for a change, inspect the relevant files and then return WRITE blocks for every file you modify.\n")
+                    .append("- Always include the COMPLETE file content, never a patch or placeholder.\n")
+                    .append("- Do not write outside the project or into build/, .gradle/, .git/, release/ or .eluajs/.\n")
+                    .append("- Do not modify unrelated files. Do not invent APIs.\n")
+                    .append("- After writing, give a short summary of what changed; do not paste the full files again.\n")
+                    .append("- If you only need to read files, reply with READ lines only.\n");
+        } else {
+            b.append("\n\nProject editing is disabled. Return code in fenced blocks and explain where to apply it.\n");
         }
         b.append("\n\nCURRENT FILE (").append(fileLabel == null ? "unknown" : fileLabel.get()).append("):\n");
         b.append(limit(currentFileText(), 20_000));
@@ -531,14 +743,9 @@ public final class AiPanel extends JPanel {
             editor.replaceSelection(code);
             status.setText(t("Selection replaced with the generated code."));
         } else {
-            try {
-                int caret = editor.getCaretPosition();
-                editor.getDocument().insertString(caret, code, null);
-                editor.setCaretPosition(caret + code.length());
-                status.setText(t("Code inserted at the cursor."));
-            } catch (Exception ex) {
-                status.setText(t("Request failed: %s", ex.getMessage()));
-            }
+            editor.setText(code);
+            editor.setCaretPosition(0);
+            status.setText(t("Code applied to the file. Save to keep it."));
         }
         editor.requestFocusInWindow();
     }

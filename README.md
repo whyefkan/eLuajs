@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3-37d6a4">
+  <img alt="version" src="https://img.shields.io/badge/version-1.4.0-37d6a4">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-2ea043">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows-0078d4">
   <img alt="java" src="https://img.shields.io/badge/Java-17%2B-007396">
@@ -29,7 +29,8 @@
 - **AI coding assistant** — docked chat panel, on-demand project reading, Markdown/code rendering, token usage and approximate cost.
 - **Providers** — OpenAI, Claude (Anthropic), Google Gemini, Groq, DeepSeek, OpenRouter, River AI and any OpenAI-compatible endpoint.
 - **English by default** — Turkish is available in Settings.
-- **Auto-update** — checks GitHub Releases on startup and can replace `app/eLuajs.jar` and restart.
+- **AI agent editing** — the assistant can read, create, modify and delete project files directly; the open editor reloads automatically and edits can be undone.
+- **Auto-update** — checks the official GitHub repository on startup and can replace `app/eLuajs.jar` and restart.
 
 ## Screenshots
 
@@ -45,11 +46,12 @@
 
 Grab the latest release from the [Releases](https://github.com/whyefkan/eLuajs/releases) page:
 
-- **`eLuajs-linux-x86_64.zip`** — portable Linux package with its own Java runtime. Extract and run `./eLuajs`.
-- **`eLuajs-windows-x86_64.zip`** — portable Windows package with its own Java runtime. Extract and run `eLuajs.bat`.
+- **`eLuajs-windows-x86_64.exe`** — Windows installer. Run it, then launch eLuajs from the desktop or Start Menu. No Java installation required.
+- **`eLuajs-linux-x86_64.run`** — Linux installer. Run `chmod +x eLuajs-linux-x86_64.run && ./eLuajs-linux-x86_64.run`; it installs to `~/.local/share/eLuajs` and creates desktop/application-menu shortcuts.
+- **`eLuajs-linux-x86_64.zip`** — portable Linux package. Extract and run `./eLuajs`.
 - **`eLuajs.jar`** — application jar if you already have Java 17+.
 
-The portable packages contain their own runtime, so no system Java installation is required.
+The installers and portable packages include their own Java runtime, so no system Java is required.
 
 ## Build from source
 
