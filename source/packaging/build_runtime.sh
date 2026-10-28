@@ -7,6 +7,10 @@ set -euo pipefail
 
 OUT="${1:-runtime}"
 MODULES="java.se,java.net.http,jdk.compiler,jdk.jlink,jdk.jdeps,jdk.zipfs,jdk.crypto.ec"
+EXE=""
+case "$(uname -s 2>/dev/null || echo)" in
+  MINGW*|MSYS*|CYGWIN*) EXE=".exe" ;;
+esac
 
 if [[ -n "${JAVA_HOME:-}" && -d "$JAVA_HOME/jmods" ]]; then
   JDK="$JAVA_HOME"
@@ -19,13 +23,13 @@ else
   JDK="$(cd "$(dirname "$(readlink -f "$JAVAC_BIN")")/.." && pwd)"
 fi
 
-if [[ ! -x "$JDK/bin/jlink" || ! -d "$JDK/jmods" ]]; then
+if [[ ! -f "$JDK/bin/jlink$EXE" || ! -d "$JDK/jmods" ]]; then
   echo "Tam JDK bulunamadı: $JDK (bin/jlink + jmods gerekli)." >&2
   exit 1
 fi
 
 rm -rf "$OUT"
-"$JDK/bin/jlink" \
+"$JDK/bin/jlink$EXE" \
   --module-path "$JDK/jmods" \
   --add-modules "$MODULES" \
   --bind-services \
@@ -36,7 +40,7 @@ rm -rf "$OUT"
   --output "$OUT"
 
 echo "Runtime hazır: $OUT"
-"$OUT/bin/java" --list-modules | grep -q '^jdk.crypto.ec@' || {
+"$OUT/bin/java$EXE" --list-modules | grep -q '^jdk.crypto.ec@' || {
   echo "HATA: jdk.crypto.ec runtime içine girmedi." >&2
   exit 1
 }

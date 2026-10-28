@@ -5,13 +5,14 @@
 <h1 align="center">eLuajs</h1>
 
 <p align="center">
-  <b>A lightweight Android Java IDE for Linux — built for old computers.</b><br>
+  <b>A lightweight Android Java IDE for Linux and Windows — built for old computers.</b><br>
   Create real Android Gradle projects, write Java + XML, validate, and export a debug APK or a signed Play Store AAB.
 </p>
 
 <p align="center">
   <img alt="version" src="https://img.shields.io/badge/version-1.3-37d6a4">
-  <img alt="platform" src="https://img.shields.io/badge/platform-Linux%20x86__64-2ea043">
+  <img alt="platform" src="https://img.shields.io/badge/platform-Linux-2ea043">
+  <img alt="platform" src="https://img.shields.io/badge/platform-Windows-0078d4">
   <img alt="java" src="https://img.shields.io/badge/Java-17%2B-007396">
   <img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-blue">
 </p>
@@ -20,7 +21,7 @@
 
 ## Features
 
-- **Lightweight by design** — no Electron, no bundled browser; a compact Java/Swing IDE that stays fast on old machines.
+- **Lightweight by design** — no Electron, no bundled browser; a compact Java/Swing IDE that stays fast on old machines on Linux and Windows.
 - **Real Android projects** — Java + AndroidX, Gradle, `AndroidManifest.xml`, resources and standard project structure.
 - **VS Code-style shell** — activity bar, explorer sidebar, editor tabs, output panel, custom window controls and a dark theme.
 - **Editor built for coding** — syntax highlighting, line numbers, `Ctrl+Space` completion, `Ctrl+Shift+F` project search, automatic imports.
@@ -36,18 +37,19 @@
 | --- | --- |
 | ![Hub](docs/hub-v13.png) | ![Editor](docs/editor-v13.png) |
 
-| AI assistant |  |
-| --- | --- |
-| ![AI assistant](docs/ai-v13.png) |  |
+<p align="center">
+  <img src="docs/ai-v13.png" alt="eLuajs AI assistant">
+</p>
 
 ## Download
 
 Grab the latest release from the [Releases](https://github.com/whyefkan/eLuajs/releases) page:
 
-- **`eLuajs-linux-x86_64.zip`** — portable package with its own Java runtime. Extract and run `./eLuajs`.
+- **`eLuajs-linux-x86_64.zip`** — portable Linux package with its own Java runtime. Extract and run `./eLuajs`.
+- **`eLuajs-windows-x86_64.zip`** — portable Windows package with its own Java runtime. Extract and run `eLuajs.bat`.
 - **`eLuajs.jar`** — application jar if you already have Java 17+.
 
-The portable package contains its own runtime, so no system Java installation is required.
+The portable packages contain their own runtime, so no system Java installation is required.
 
 ## Build from source
 
@@ -58,6 +60,8 @@ cd source
 ./build.sh
 # output: source/out/eLuajs.jar
 ```
+
+On Windows, run the build from Git Bash. The GitHub Actions workflow also produces the ready-to-run Windows zip.
 
 To create the portable package locally:
 
@@ -85,6 +89,7 @@ Open the AI panel with the activity bar icon or `Ctrl+Alt+A`.
 - Auto-check runs on startup and can be disabled in **Settings → Updates**.
 - Releases must include an `eLuajs.jar` asset. The included GitHub Actions workflow builds the jar and portable zip when a `v*` tag is pushed.
 - The updater backs up the old jar as `eLuajs.jar.bak` before installing.
+- On Windows the updater stages the new jar and lets a tiny batch script replace it after the app exits, avoiding file locks.
 
 ## License
 

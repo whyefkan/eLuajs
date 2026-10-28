@@ -364,8 +364,13 @@ public final class BuildDialog extends JDialog {
         Path folder = lastOutput != null ? lastOutput.getParent() : (lastApk != null ? lastApk.getParent() : projectRoot.resolve("release"));
         try {
             Files.createDirectories(folder);
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) Desktop.getDesktop().open(folder.toFile());
-            else new ProcessBuilder("xdg-open", folder.toString()).start();
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(folder.toFile());
+            } else if (eluajs.util.Platform.isWindows()) {
+                new ProcessBuilder("explorer", folder.toString()).start();
+            } else {
+                new ProcessBuilder("xdg-open", folder.toString()).start();
+            }
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this, t("Klasör açılamadı: %s", e.getMessage()), t("Hata"), JOptionPane.ERROR_MESSAGE);
         }

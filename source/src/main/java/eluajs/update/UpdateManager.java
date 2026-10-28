@@ -2,6 +2,8 @@ package eluajs.update;
 
 import eluajs.ai.Json;
 import eluajs.util.AppInfo;
+import eluajs.util.Platform;
+import eluajs.util.I18n;
 
 import javax.swing.*;
 import java.awt.*;
@@ -36,7 +38,7 @@ public final class UpdateManager {
     public static Release check() throws Exception {
         String cleaned = OFFICIAL_REPO;
         if (!cleaned.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
-            throw new IOException("Official repository is invalid");
+            throw new IOException(I18n.t("Official repository is invalid"));
         }
         HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.github.com/repos/" + cleaned + "/releases/latest"))
                 .timeout(Duration.ofSeconds(25))
@@ -47,12 +49,12 @@ public final class UpdateManager {
                 .build();
         HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
         int status = response.statusCode();
-        if (status == 404) throw new IOException("Repository or release not found: " + cleaned);
-        if (status == 403) throw new IOException("GitHub API rate limit reached. Try again later.");
-        if (status / 100 != 2) throw new IOException("GitHub returned HTTP " + status);
+        if (status == 404) throw new IOException(I18n.t("No release has been published yet."));
+        if (status == 403) throw new IOException(I18n.t("GitHub API rate limit reached. Try again later."));
+        if (status / 100 != 2) throw new IOException(I18n.t("GitHub returned HTTP %d", status));
         Object root = Json.parse(response.body());
         String tag = Json.stringAt(root, "tag_name");
-        if (tag == null || tag.isBlank()) throw new IOException("Latest release has no tag");
+        if (tag == null || tag.isBlank()) throw new IOException(I18n.t("Latest release has no tag"));
         String version = normalizeVersion(tag);
         String notes = Json.stringAt(root, "body");
         if (notes == null) notes = "";
@@ -101,7 +103,7 @@ public final class UpdateManager {
 
     public static void install(Release release) throws Exception {
         if (release == null || release.assetUrl() == null || release.assetUrl().isBlank()) {
-            throw new IOException("No eLuajs.jar asset in the release");
+            throw new IOException(I18n.t("No eLuajs.jar asset in the release"));
         }
         Path jar = currentJar();
         Path temp = Files.createTempFile("eluajs-update-", ".part");
@@ -114,11 +116,15 @@ public final class UpdateManager {
         HttpResponse<Path> response = HTTP.send(request, HttpResponse.BodyHandlers.ofFile(temp));
         if (response.statusCode() / 100 != 2) {
             Files.deleteIfExists(temp);
-            throw new IOException("Download failed: HTTP " + response.statusCode());
+            throw new IOException(I18n.t("Download failed: HTTP %d", response.statusCode()));
         }
         if (!validJar(temp)) {
             Files.deleteIfExists(temp);
-            throw new IOException("Downloaded file is not a valid eLuajs jar");
+            throw new IOException(I18n.t("Downloaded file is not a valid eLuajs jar"));
+        }
+        if (Platform.isWindows()) {
+            installWindows(jar, temp);
+            return;
         }
         Path backup = jar.resolveSibling("eLuajs.jar.bak");
         Files.copy(jar, backup, StandardCopyOption.REPLACE_EXISTING);
@@ -129,17 +135,55 @@ public final class UpdateManager {
         }
     }
 
+    private static void installWindows(Path jar, Path downloaded) throws Exception {
+        Path appDir = jar.getParent();
+        Path staged = appDir.resolve("eLuajs-update.jar");
+        Files.copy(downloaded, staged, StandardCopyOption.REPLACE_EXISTING);
+        Files.deleteIfExists(downloaded);
+        Path batch = appDir.resolve("update.bat");
+        String script = "@echo off\r\n"
+                + "timeout /t 3 /nobreak >nul\r\n"
+                + "copy /y \"%~dp0eLuajs.jar\" \"%~dp0eLuajs.jar.bak\" >nul\r\n"
+                + ":retry\r\n"
+                + "move /y \"%~dp0eLuajs-update.jar\" \"%~dp0eLuajs.jar\" >nul 2>&1\r\n"
+                + "if errorlevel 1 (\r\n"
+                + "  timeout /t 1 /nobreak >nul\r\n"
+                + "  goto retry\r\n"
+                + ")\r\n"
+                + "if exist \"%~dp0..\\eLuajs.bat\" (\r\n"
+                + "  start \"\" \"%~dp0..\\eLuajs.bat\"\r\n"
+                + ") else (\r\n"
+                + "  start \"\" \"%~dp0..\\runtime\\bin\\javaw.exe\" -Xms64m -Xmx1024m -jar \"%~dp0eLuajs.jar\"\r\n"
+                + ")\r\n"
+                + "del \"%~f0\"\r\n";
+        Files.writeString(batch, script, java.nio.charset.StandardCharsets.UTF_8);
+        new ProcessBuilder("cmd.exe", "/c", "start", "", batch.toString()).start();
+        System.exit(0);
+    }
+
     public static void restart() throws Exception {
         Path jar = currentJar();
         Path appRoot = jar.getParent().getParent();
-        Path launcher = appRoot.resolve("eLuajs");
         ProcessBuilder builder;
-        if (Files.isExecutable(launcher)) {
-            builder = new ProcessBuilder(launcher.toString());
+        if (Platform.isWindows()) {
+            Path bat = appRoot.resolve("eLuajs.bat");
+            if (Files.isRegularFile(bat)) {
+                builder = new ProcessBuilder("cmd.exe", "/c", "start", "", bat.toString());
+            } else {
+                Path javaw = appRoot.resolve("runtime/bin/javaw.exe");
+                if (!Files.isRegularFile(javaw)) javaw = appRoot.resolve("runtime/bin/java.exe");
+                if (!Files.isRegularFile(javaw)) throw new IOException(I18n.t("Launcher and bundled runtime not found"));
+                builder = new ProcessBuilder(javaw.toString(), "-jar", jar.toString());
+            }
         } else {
-            Path java = appRoot.resolve("runtime/bin/java");
-            if (!Files.isExecutable(java)) throw new IOException("Launcher and bundled runtime not found");
-            builder = new ProcessBuilder(java.toString(), "-jar", jar.toString());
+            Path launcher = appRoot.resolve("eLuajs");
+            if (Files.isExecutable(launcher)) {
+                builder = new ProcessBuilder(launcher.toString());
+            } else {
+                Path java = appRoot.resolve("runtime/bin/java");
+                if (!Files.isExecutable(java)) throw new IOException(I18n.t("Launcher and bundled runtime not found"));
+                builder = new ProcessBuilder(java.toString(), "-jar", jar.toString());
+            }
         }
         builder.directory(appRoot.toFile());
         builder.start();
@@ -150,7 +194,7 @@ public final class UpdateManager {
 
     private static Path currentJar() throws Exception {
         Path path = Path.of(UpdateManager.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        if (!Files.isRegularFile(path)) throw new IOException("This update mode needs a packaged eLuajs.jar");
+        if (!Files.isRegularFile(path)) throw new IOException(I18n.t("This update mode needs a packaged eLuajs.jar"));
         return path;
     }
 

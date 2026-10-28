@@ -9,34 +9,23 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  linux:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-
       - name: Build eLuajs.jar
         run: |
           cd source
           VERSION="${GITHUB_REF_NAME#v}" ./build.sh
-
-      - name: Verify jar
-        run: |
-          test -f source/out/eLuajs.jar
-          unzip -p source/out/eLuajs.jar META-INF/MANIFEST.MF | grep -q 'Main-Class: eluajs.Main'
-
       - name: Build portable runtime
         run: |
           chmod +x source/packaging/build_runtime.sh
           source/packaging/build_runtime.sh runtime
-
-      - name: Build launcher and package
+      - name: Package Linux
         run: |
           gcc -O2 -s -o eLuajs source/packaging/launcher.c
           rm -rf dist
@@ -48,11 +37,59 @@ jobs:
           chmod +x dist/eLuajs/eLuajs
           cd dist
           zip -r ../eLuajs-linux-x86_64.zip eLuajs
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Stage jar for release
+        run: cp source/out/eLuajs.jar eLuajs.jar
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            source/out/eLuajs.jar
+          name: linux
+          path: |
             eLuajs-linux-x86_64.zip
+            eLuajs.jar
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build eLuajs.jar
+        run: |
+          cd source
+          VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+      - name: Build portable Windows runtime
+        run: |
+          export JAVA_HOME="$(cygpath -u "$JAVA_HOME")"
+          chmod +x source/packaging/build_runtime.sh
+          source/packaging/build_runtime.sh runtime
+      - name: Package Windows
+        run: |
+          rm -rf dist
+          mkdir -p dist/eLuajs/app
+          cp source/out/eLuajs.jar dist/eLuajs/app/
+          cp -r runtime dist/eLuajs/runtime
+          cp source/packaging/eLuajs.bat dist/eLuajs/
+          cp eLuajs-icon.png README.md LICENSE dist/eLuajs/
+          cd dist
+          powershell -Command "Compress-Archive -Path 'eLuajs' -DestinationPath '../eLuajs-windows-x86_64.zip' -Force"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: eLuajs-windows-x86_64.zip
+
+  release:
+    needs: [linux, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
           generate_release_notes: true

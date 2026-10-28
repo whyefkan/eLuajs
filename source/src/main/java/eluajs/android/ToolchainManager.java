@@ -2,7 +2,9 @@ package eluajs.android;
 
 import eluajs.util.AppPaths;
 import eluajs.util.FileUtil;
+import eluajs.util.Platform;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -15,9 +17,15 @@ public final class ToolchainManager {
     public static final String GRADLE_VERSION = "8.13";
     public static final String BUILD_TOOLS = "35.0.0";
     public static final int ANDROID_PLATFORM = 36;
-    public static final String SDK_TOOLS_FILE = "commandlinetools-linux-15859902_latest.zip";
-    public static final String SDK_TOOLS_URL = "https://dl.google.com/android/repository/" + SDK_TOOLS_FILE;
     public static final String GRADLE_URL = "https://services.gradle.org/distributions/gradle-" + GRADLE_VERSION + "-bin.zip";
+
+    public static String sdkToolsFile() {
+        return "commandlinetools-" + (Platform.isWindows() ? "win" : "linux") + "-15859902_latest.zip";
+    }
+
+    public static String sdkToolsUrl() {
+        return "https://dl.google.com/android/repository/" + sdkToolsFile();
+    }
 
     private ToolchainManager() {}
 
@@ -27,22 +35,24 @@ public final class ToolchainManager {
         return (root == null || root.isBlank()) ? AppPaths.managedSdk() : Path.of(root);
     }
 
-    public static Path sdkManager() { return sdkRoot().resolve("cmdline-tools/latest/bin/sdkmanager"); }
+    public static Path sdkManager() {
+        return sdkRoot().resolve("cmdline-tools/latest/bin/" + Platform.bat("sdkmanager"));
+    }
     public static Path gradleHome() { return AppPaths.tools().resolve("gradle-" + GRADLE_VERSION); }
-    public static Path gradleExecutable() { return gradleHome().resolve("bin/gradle"); }
+    public static Path gradleExecutable() { return gradleHome().resolve("bin/" + Platform.bat("gradle")); }
 
     public static Path javaHome() { return Path.of(System.getProperty("java.home")).toAbsolutePath().normalize(); }
-    public static Path javaExecutable() { return javaHome().resolve("bin/java"); }
-    public static Path javacExecutable() { return javaHome().resolve("bin/javac"); }
-    public static Path jlinkExecutable() { return javaHome().resolve("bin/jlink"); }
-    public static Path keytoolExecutable() { return javaHome().resolve("bin/keytool"); }
+    public static Path javaExecutable() { return javaHome().resolve("bin/" + Platform.exe("java")); }
+    public static Path javacExecutable() { return javaHome().resolve("bin/" + Platform.exe("javac")); }
+    public static Path jlinkExecutable() { return javaHome().resolve("bin/" + Platform.exe("jlink")); }
+    public static Path keytoolExecutable() { return javaHome().resolve("bin/" + Platform.exe("keytool")); }
 
     /** Android Gradle Plugin için yalnızca java yeterli değildir; javac ve jlink de zorunludur. */
     public static boolean javaReady() {
-        return Files.isExecutable(javaExecutable())
-                && Files.isExecutable(javacExecutable())
-                && Files.isExecutable(jlinkExecutable())
-                && Files.isExecutable(keytoolExecutable())
+        return Platform.runnable(javaExecutable())
+                && Platform.runnable(javacExecutable())
+                && Platform.runnable(jlinkExecutable())
+                && Platform.runnable(keytoolExecutable())
                 && tlsCryptoReady();
     }
 
@@ -51,8 +61,8 @@ public final class ToolchainManager {
         return ModuleLayer.boot().findModule("jdk.crypto.ec").isPresent();
     }
 
-    public static boolean gradleReady() { return Files.isExecutable(gradleExecutable()); }
-    public static boolean sdkManagerReady() { return Files.isExecutable(sdkManager()); }
+    public static boolean gradleReady() { return Platform.runnable(gradleExecutable()); }
+    public static boolean sdkManagerReady() { return Platform.runnable(sdkManager()); }
     public static boolean platformReady() { return Files.isDirectory(sdkRoot().resolve("platforms/android-" + ANDROID_PLATFORM)); }
     public static boolean buildToolsReady() { return Files.isDirectory(sdkRoot().resolve("build-tools/" + BUILD_TOOLS)); }
     public static boolean sdkReady() { return sdkManagerReady() && platformReady() && buildToolsReady(); }
@@ -81,8 +91,8 @@ public final class ToolchainManager {
         Path sdk = sdkRoot();
         Files.createDirectories(sdk);
         if (!sdkManagerReady()) {
-            Path zip = AppPaths.downloads().resolve(SDK_TOOLS_FILE);
-            if (!Files.exists(zip)) FileUtil.download(SDK_TOOLS_URL, zip, log);
+            Path zip = AppPaths.downloads().resolve(sdkToolsFile());
+            if (!Files.exists(zip)) FileUtil.download(sdkToolsUrl(), zip, log);
             Path tmp = AppPaths.tools().resolve("android-cmdline-unpack");
             FileUtil.deleteTree(tmp);
             log.accept("Android komut satırı araçları açılıyor...");
@@ -95,7 +105,7 @@ public final class ToolchainManager {
             Files.move(source, latest, StandardCopyOption.REPLACE_EXISTING);
             FileUtil.deleteTree(tmp);
             sdkManager().toFile().setExecutable(true);
-            Path avd = latest.resolve("bin/avdmanager");
+            Path avd = latest.resolve("bin/" + Platform.bat("avdmanager"));
             if (Files.exists(avd)) avd.toFile().setExecutable(true);
             log.accept("Android SDK yöneticisi hazır.");
         }
@@ -103,11 +113,11 @@ public final class ToolchainManager {
         Map<String,String> env = environment();
         String yes = "y\n".repeat(80);
         log.accept("Android SDK lisansları uygulanıyor...");
-        int licenseExit = ProcessRunner.run(List.of(sdkManager().toString(), "--sdk_root=" + sdk, "--licenses"), null, env, yes, log);
+        int licenseExit = ProcessRunner.run(toolCommand(sdkManager(), "--sdk_root=" + sdk, "--licenses"), null, env, yes, log);
         if (licenseExit != 0) throw new IOException("SDK lisans işlemi başarısız (kod " + licenseExit + ").");
 
         log.accept("Android platformu ve Build Tools kuruluyor...");
-        int exit = ProcessRunner.run(List.of(sdkManager().toString(), "--sdk_root=" + sdk,
+        int exit = ProcessRunner.run(toolCommand(sdkManager(), "--sdk_root=" + sdk,
                 "platform-tools", "platforms;android-" + ANDROID_PLATFORM, "build-tools;" + BUILD_TOOLS),
                 null, env, yes, log);
         if (exit != 0) throw new IOException("Android SDK paket kurulumu başarısız (kod " + exit + ").");
@@ -128,7 +138,7 @@ public final class ToolchainManager {
         FileUtil.writeStringAtomic(local, "sdk.dir=" + sdkEscaped + "\n");
         Map<String,String> env = environment();
         log.accept("APK derlemesi başlatıldı...");
-        int exit = ProcessRunner.run(List.of(gradleExecutable().toString(), "--no-daemon", "--console=plain", ":app:assembleDebug"), projectRoot, env, null, log);
+        int exit = ProcessRunner.run(toolCommand(gradleExecutable(), "--no-daemon", "--console=plain", ":app:assembleDebug"), projectRoot, env, null, log);
         if (exit != 0) throw new IOException("Gradle derlemesi başarısız (kod " + exit + "). Ayrıntılar yukarıdaki günlükte.");
         Path apk = projectRoot.resolve("app/build/outputs/apk/debug/app-debug.apk");
         if (!Files.isRegularFile(apk)) throw new IOException("Derleme tamamlandı ancak APK bulunamadı: " + apk);
@@ -201,7 +211,7 @@ public final class ToolchainManager {
             log.accept("Release AAB derlemesi başlatıldı...");
             log.accept("İmzalama: " + signing.storeFile() + " / alias=" + signing.keyAlias());
         }
-        int exit = ProcessRunner.run(List.of(gradleExecutable().toString(), "--no-daemon", "--console=plain",
+        int exit = ProcessRunner.run(toolCommand(gradleExecutable(), "--no-daemon", "--console=plain",
                         "--init-script", initScript.toString(), ":app:bundleRelease"),
                 projectRoot, env, null, log);
         if (exit != 0) throw new IOException("Release AAB Gradle derlemesi başarısız (kod " + exit + "). Ayrıntılar yukarıdaki günlükte.");
@@ -236,13 +246,26 @@ public final class ToolchainManager {
         } catch (IOException ex) { return false; }
     }
 
+    private static List<String> toolCommand(Path executable, String... args) {
+        List<String> command = new ArrayList<>();
+        String exe = executable.toString();
+        if (Platform.isWindows() && exe.toLowerCase(Locale.ROOT).endsWith(".bat")) {
+            command.add("cmd.exe");
+            command.add("/c");
+        }
+        command.add(exe);
+        command.addAll(Arrays.asList(args));
+        return command;
+    }
+
     public static Map<String,String> environment() {
         Map<String,String> env = new HashMap<>();
         env.put("ANDROID_SDK_ROOT", sdkRoot().toString());
         env.put("ANDROID_HOME", sdkRoot().toString());
         env.put("JAVA_HOME", javaHome().toString());
         String path = System.getenv().getOrDefault("PATH", "");
-        env.put("PATH", javaHome().resolve("bin") + ":" + sdkRoot().resolve("platform-tools") + ":" + path);
+        env.put("PATH", javaHome().resolve("bin") + File.pathSeparator
+                + sdkRoot().resolve("platform-tools") + File.pathSeparator + path);
         return env;
     }
 }
