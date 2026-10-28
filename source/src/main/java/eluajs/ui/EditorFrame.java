@@ -49,6 +49,11 @@ public final class EditorFrame extends JFrame {
     private final Map<Path, EditorTab> openTabs = new LinkedHashMap<>();
     private final JPanel splitPanel = new JPanel(new BorderLayout());
     private final JSplitPane editorSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+    private final JLabel splitTitle = Ui.label("", 10, Font.BOLD, Theme.MUTED);
+    private final JButton splitSaveButton = Ui.button(t("Kaydet"), false);
+    private Path splitFile;
+    private boolean splitDirty;
+    private boolean splitSuppressDirty;
     private EditorTab activeTab;
     private boolean tabsUpdating;
     private boolean splitVisible;
@@ -362,11 +367,34 @@ public final class EditorFrame extends JFrame {
         splitHead.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
                 new EmptyBorder(4, 10, 4, 10)));
-        splitHead.add(Ui.label(t("Split preview"), 10, Font.BOLD, Theme.MUTED), BorderLayout.WEST);
+        splitHead.add(splitTitle, BorderLayout.WEST);
+        JPanel splitTools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        splitTools.setOpaque(false);
+        splitSaveButton.setFont(Theme.font(10, Font.BOLD));
+        splitSaveButton.setBorder(new EmptyBorder(3, 8, 3, 8));
+        splitSaveButton.addActionListener(e -> saveSplit());
+        JButton splitClose = compact("×", t("Bölmeyi Kapat"));
+        splitClose.addActionListener(e -> closeSplit());
+        splitTools.add(splitSaveButton);
+        splitTools.add(splitClose);
+        splitHead.add(splitTools, BorderLayout.EAST);
         splitPanel.setBackground(Theme.EDITOR);
         splitPanel.add(splitHead, BorderLayout.NORTH);
         splitPanel.add(splitScroll, BorderLayout.CENTER);
         splitPanel.setVisible(false);
+        splitEditor.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { markSplitDirty(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { markSplitDirty(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { }
+        });
+        splitEditor.addCaretListener(e -> {
+            if (splitFile != null) splitTitle.setText((splitDirty ? "● " : "") + meta.rootDir().relativize(splitFile));
+        });
+        splitEditor.getInputMap(JComponent.WHEN_FOCUSED).put(
+                KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK), "split-save");
+        splitEditor.getActionMap().put("split-save", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { saveSplit(); }
+        });
 
         editorSplit.setLeftComponent(editorHost);
         editorSplit.setBorder(null);
@@ -786,7 +814,6 @@ public final class EditorFrame extends JFrame {
             currentFile.setToolTipText(selected.file.toString());
             tabDot.setText(selected.dirty ? "●" : "");
         }
-        if (splitVisible) splitEditor.setDocument(editor.getDocument());
         updateEditorStatus();
         updateTabStyles();
     }
@@ -907,7 +934,10 @@ public final class EditorFrame extends JFrame {
         });
         JMenuItem split = new JMenuItem(splitVisible ? t("Bölmeyi Kapat") : t("Yana Böl"));
         split.addActionListener(e -> toggleSplit());
+        JMenuItem openSide = new JMenuItem(t("Yana Aç"));
+        openSide.addActionListener(e -> openSplitFile(tab.file));
         menu.add(split);
+        menu.add(openSide);
         menu.addSeparator();
         menu.add(close);
         menu.add(closeOthers);
@@ -972,16 +1002,93 @@ public final class EditorFrame extends JFrame {
 
     private void toggleSplit() {
         if (splitVisible) {
-            splitVisible = false;
-            splitPanel.setVisible(false);
-            editorSplit.setRightComponent(null);
-        } else {
-            splitVisible = true;
-            splitEditor.setDocument(editor.getDocument());
-            splitPanel.setVisible(true);
-            editorSplit.setRightComponent(splitPanel);
-            editorSplit.setDividerLocation(0.5);
+            closeSplit();
+            return;
         }
+        splitVisible = true;
+        splitPanel.setVisible(true);
+        editorSplit.setRightComponent(splitPanel);
+        editorSplit.setDividerLocation(0.5);
+        if (activeTab != null) openSplitFile(activeTab.file);
+        else {
+            splitFile = null;
+            splitDirty = false;
+            splitSuppressDirty = true;
+            splitEditor.setText("");
+            splitSuppressDirty = false;
+            splitTitle.setText(t("Split view"));
+            splitSaveButton.setEnabled(false);
+        }
+        editorSplit.revalidate();
+        editorSplit.repaint();
+    }
+
+    private void openSplitFile(Path file) {
+        if (file == null || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                || !FileUtil.isSafeProjectPath(meta.rootDir(), file)) return;
+        try {
+            splitSuppressDirty = true;
+            splitEditor.setFile(file, Files.readString(file, StandardCharsets.UTF_8));
+            splitFile = file.toAbsolutePath().normalize();
+            splitDirty = false;
+            splitTitle.setText(relative(splitFile));
+            splitSaveButton.setEnabled(false);
+            if (!splitVisible) {
+                splitVisible = true;
+                splitPanel.setVisible(true);
+                editorSplit.setRightComponent(splitPanel);
+                editorSplit.setDividerLocation(0.5);
+                editorSplit.revalidate();
+                editorSplit.repaint();
+            }
+        } catch (IOException ex) {
+            appendConsole(t("Dosya açılamadı: %s", ex.getMessage()));
+        } finally {
+            splitSuppressDirty = false;
+        }
+    }
+
+    private void markSplitDirty() {
+        if (splitSuppressDirty || splitFile == null) return;
+        splitDirty = true;
+        splitTitle.setText("● " + relative(splitFile));
+        splitSaveButton.setEnabled(true);
+    }
+
+    private void saveSplit() {
+        if (splitFile == null) return;
+        try {
+            FileUtil.recoveryCopy(meta.rootDir(), splitFile);
+            FileUtil.writeStringAtomic(splitFile, splitEditor.getText());
+            splitDirty = false;
+            splitTitle.setText(relative(splitFile));
+            splitSaveButton.setEnabled(false);
+            appendConsole(t("Kaydedildi: %s", relative(splitFile)));
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Kaydetme hatası"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private boolean confirmSplitClose() {
+        if (!splitDirty || splitFile == null) return true;
+        Object[] options = {t("Kaydet"), t("Değişiklikleri At"), t("İptal")};
+        int choice = JOptionPane.showOptionDialog(this,
+                t("%s dosyasında kaydedilmemiş değişiklikler var.", relative(splitFile)),
+                t("Kaydedilmemiş değişiklik"), JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+        if (choice == 0) { saveSplit(); return !splitDirty; }
+        return choice == 1;
+    }
+
+    private void closeSplit() {
+        if (!confirmSplitClose()) return;
+        splitVisible = false;
+        splitDirty = false;
+        splitFile = null;
+        splitPanel.setVisible(false);
+        editorSplit.setRightComponent(null);
+        splitEditor.setText("");
+        splitTitle.setText(t("Split view"));
+        splitSaveButton.setEnabled(false);
         editorSplit.revalidate();
         editorSplit.repaint();
     }
@@ -1117,6 +1224,17 @@ public final class EditorFrame extends JFrame {
                 appendConsole(t("Could not reload the file after AI edits: %s", ex.getMessage()));
             }
         }
+        if (splitFile != null) {
+            if (!Files.isRegularFile(splitFile)) {
+                closeSplit();
+            } else if (!splitDirty) {
+                try {
+                    splitSuppressDirty = true;
+                    splitEditor.setFile(splitFile, Files.readString(splitFile, StandardCharsets.UTF_8));
+                    splitSuppressDirty = false;
+                } catch (IOException ignored) { }
+            }
+        }
         syncActiveTab();
     }
 
@@ -1239,11 +1357,15 @@ public final class EditorFrame extends JFrame {
 
     private record TreeSnapshot(DefaultMutableTreeNode root, List<ProjectActivityManager.ActivityInfo> pages) { }
 
+    private static final java.util.Set<String> TREE_SKIP = java.util.Set.of(
+            ".git", ".gradle", ".idea", ".eluajs", "build", "release", "out", "dist", "node_modules");
+
     private DefaultMutableTreeNode buildNode(Path p, int depth) {
         DefaultMutableTreeNode node = new DefaultMutableTreeNode(new FileNode(p));
         if (Files.isDirectory(p) && depth < 8) {
             try (var s = Files.list(p)) {
-                s.filter(x -> !x.getFileName().toString().equals(".gradle") && !x.getFileName().toString().equals("build"))
+                s.filter(x -> !Files.isSymbolicLink(x))
+                        .filter(x -> !TREE_SKIP.contains(x.getFileName().toString()))
                         .sorted(Comparator.comparing((Path x) -> !Files.isDirectory(x))
                                 .thenComparing(x -> x.getFileName().toString().toLowerCase()))
                         .forEach(x -> node.add(buildNode(x, depth + 1)));
@@ -1419,7 +1541,8 @@ public final class EditorFrame extends JFrame {
     }
 
     private void openFile(Path p) {
-        if (p == null || !Files.isRegularFile(p)) return;
+        if (p == null || !Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)
+                || !FileUtil.isSafeProjectPath(meta.rootDir(), p)) return;
         Path file = p.toAbsolutePath().normalize();
         EditorTab existing = openTabs.get(file);
         if (existing != null) {
@@ -1495,11 +1618,13 @@ public final class EditorFrame extends JFrame {
 
     private void confirmClose() {
         if (!confirmCloseAllTabs()) return;
+        if (!confirmSplitClose()) return;
         dispose();
     }
 
     private void openFileAtLine(Path file, Integer line) {
-        if (file == null || !Files.isRegularFile(file) || !FileUtil.isTextFile(file)) {
+        if (file == null || !Files.isRegularFile(file) || !FileUtil.isTextFile(file)
+                || !FileUtil.isSafeProjectPath(meta.rootDir(), file)) {
             appendConsole(t("Dosya konumu açılamadı: %s", file));
             return;
         }

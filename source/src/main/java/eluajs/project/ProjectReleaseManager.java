@@ -75,8 +75,8 @@ public final class ProjectReleaseManager {
         p.setProperty("keyPassword", savePasswords ? config.keyPassword() : "");
         Path file = settingsFile(projectRoot);
         Files.createDirectories(file.getParent());
-        Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
-        try (OutputStream out = Files.newOutputStream(tmp, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+        Path tmp = FileUtil.secureTempFile(file, ".tmp");
+        try (OutputStream out = Files.newOutputStream(tmp, StandardOpenOption.TRUNCATE_EXISTING)) {
             p.store(out, "eLuajs release signing - NEVER COMMIT SECRETS");
         }
         try {
@@ -90,7 +90,7 @@ public final class ProjectReleaseManager {
     public static Path ensureInitScript(Path projectRoot) throws IOException {
         Path script = initScript(projectRoot);
         String text = """
-                // eLuajs v1.3 - release AAB signing injection.
+                // eLuajs release AAB signing injection.
                 // Secrets are read from process environment; they are not embedded into build.gradle.
                 gradle.beforeProject { p ->
                     p.plugins.withId('com.android.application') {

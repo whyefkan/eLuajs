@@ -1,5 +1,7 @@
 package eluajs.ai;
 
+import eluajs.util.FileUtil;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -38,7 +40,7 @@ public final class ProjectContext {
         tree.append("FILE TREE:\n");
         int[] treeEntries = {0};
         try (Stream<Path> walk = Files.walk(root, 12)) {
-            walk.filter(p -> !p.equals(root))
+            walk.filter(p -> !p.equals(root) && !Files.isSymbolicLink(p))
                     .filter(p -> !isSkipped(root.relativize(p)))
                     .sorted(Comparator.comparing(p -> root.relativize(p).toString().toLowerCase(Locale.ROOT)))
                     .limit(MAX_TREE_ENTRIES)
@@ -100,7 +102,7 @@ public final class ProjectContext {
         StringBuilder tree = new StringBuilder();
         int[] count = {0};
         try (Stream<Path> walk = Files.walk(root, 12)) {
-            walk.filter(p -> !p.equals(root))
+            walk.filter(p -> !p.equals(root) && !Files.isSymbolicLink(p))
                     .filter(p -> !isSkipped(root.relativize(p)))
                     .sorted(Comparator.comparing(p -> root.relativize(p).toString().toLowerCase(Locale.ROOT)))
                     .limit(MAX_TREE_ENTRIES)
@@ -127,7 +129,7 @@ public final class ProjectContext {
         for (Path part : base.relativize(target)) {
             if ("..".equals(part.toString()) || SKIP_DIRS.contains(part.toString())) return null;
         }
-        if (!isText(target)) return null;
+        if (!FileUtil.isSafeProjectPath(base, target) || !isText(target)) return null;
         return target;
     }
 

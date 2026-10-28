@@ -5,7 +5,7 @@
 <h1 align="center">eLuajs</h1>
 
 <p align="center">
-  <b>A lightweight Android Java IDE for Linux and Windows — built for old computers.</b><br>
+  <b>A lightweight Android Java IDE for Linux and Windows.</b><br>
   Create real Android Gradle projects, write Java + XML, validate, and export a debug APK or a signed Play Store AAB.
 </p>
 
@@ -32,7 +32,7 @@
 
 ## Why eLuajs?
 
-- **Actually lightweight** — no Electron, no bundled browser. A compact Java/Swing IDE that stays usable on old machines.
+- **Actually lightweight** — no Electron, no bundled browser. A compact Java/Swing IDE with a small memory footprint.
 - **Real Android projects** — standard Gradle structure, Java + AndroidX, `AndroidManifest.xml`, resources and build outputs.
 - **APK and Play Store AAB** — validate, build a debug APK, or sign a release AAB with your upload keystore.
 - **Agentic AI assistant** — reads the project, edits files directly, reloads the editor, reports what changed and can undo the last edit.
@@ -67,14 +67,14 @@ All links below always point to the **latest release**.
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v143.png) | ![Editor](docs/editor-v13.png) |
+| ![Hub](docs/hub-v150.png) | ![Editor](docs/editor-v150.png) |
 
 <p align="center">
-  <img src="docs/ai-v143.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v150.png" alt="eLuajs AI assistant">
 </p>
 
 <p align="center">
-  <img src="docs/build-v143.png" alt="eLuajs build output window">
+  <img src="docs/build-v150.png" alt="eLuajs build output window">
 </p>
 
 ## Features
@@ -115,7 +115,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 ## Versioning
 
 - `1.5.0` was the large feature update (import, tabs, Git, build manager, six languages, and more).
-- Small fixes keep the same minor line: `1.5.1`, `1.5.2`, and so on.
+- `1.5.1` is the follow-up reliability/security patch.
+- Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.
 
@@ -152,6 +153,7 @@ cp -r runtime dist/eLuajs/runtime
 
 ## Contributing
 
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) for the fork, branch, test and pull-request workflow.
 - **Issues** and **Discussions** are enabled — bug reports, ideas and questions are welcome.
 - Fork the repository, keep the app lightweight (no Electron/Node), and open a pull request.
 - If you add a feature, update the English README and keep the Turkish translation in Settings intact.

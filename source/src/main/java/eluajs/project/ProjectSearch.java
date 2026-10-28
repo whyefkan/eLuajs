@@ -96,7 +96,7 @@ public final class ProjectSearch {
     }
 
     private static boolean searchable(Path file) {
-        if (!FileUtil.isTextFile(file)) return false;
+        if (Files.isSymbolicLink(file) || !FileUtil.isTextFile(file)) return false;
         for (Path part : file) {
             String p = part.toString();
             if (p.equals(".gradle") || p.equals(".git") || p.equals("build") || p.equals(".idea") || p.equals(".eluajs")) return false;

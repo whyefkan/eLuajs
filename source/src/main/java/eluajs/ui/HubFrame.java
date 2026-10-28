@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * v1.3 uses a VS Code-like shell: slim activity bar, explorer sidebar, a
  * context-aware welcome/detail surface in the middle and a compact status bar.
- * Project discovery still runs off the EDT so old machines stay responsive.
+ * Project discovery still runs off the EDT so the hub stays responsive.
  */
 public final class HubFrame extends JFrame {
     public static final String VERSION = eluajs.util.AppInfo.version();
@@ -249,7 +249,7 @@ public final class HubFrame extends JFrame {
         heroText.add(tagline);
         heroText.add(Box.createVerticalStrut(8));
 
-        JLabel desc = Ui.label(t("Eski bilgisayarlarda bile hızlı çalışır. Kodla, doğrula, debug APK veya imzalı Play Store AAB al."), 12, Font.PLAIN, Theme.MUTED);
+        JLabel desc = Ui.label(t("Hafif ve hızlı Android Java IDE. Kodla, doğrula, debug APK veya imzalı Play Store AAB al."), 12, Font.PLAIN, Theme.MUTED);
         desc.setAlignmentX(Component.LEFT_ALIGNMENT);
         heroText.add(desc);
         hero.add(heroText, BorderLayout.CENTER);

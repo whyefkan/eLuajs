@@ -7,8 +7,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -33,18 +36,93 @@ public final class FileUtil {
     }
 
     public static void download(String url, Path target, Consumer<String> log) throws IOException, InterruptedException {
+        downloadVerified(url, target, null, "SHA-256", log);
+    }
+
+    public static void downloadVerified(String url, Path target, String expectedHash, String algorithm,
+                                        Consumer<String> log) throws IOException, InterruptedException {
         Files.createDirectories(target.getParent());
         Path partial = target.resolveSibling(target.getFileName() + ".part");
         Files.deleteIfExists(partial);
         if (log != null) log.accept("İndiriliyor: " + url);
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(20)).header("User-Agent", "eLuajs/1.3").build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(20))
+                .header("User-Agent", "eLuajs/1.5").build();
         HttpResponse<Path> response = HTTP.send(request, HttpResponse.BodyHandlers.ofFile(partial));
         if (response.statusCode() / 100 != 2) {
             Files.deleteIfExists(partial);
             throw new IOException("İndirme başarısız. HTTP " + response.statusCode());
         }
-        Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        if (expectedHash != null && !expectedHash.isBlank()) {
+            String actual = digest(partial, algorithm);
+            if (!actual.equalsIgnoreCase(expectedHash.trim())) {
+                Files.deleteIfExists(partial);
+                throw new IOException("İndirilen dosyanın " + algorithm + " özeti eşleşmedi.");
+            }
+            if (log != null) log.accept(algorithm + " doğrulandı.");
+        }
+        try {
+            Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException ex) {
+            Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING);
+        }
         if (log != null) log.accept("İndirme tamamlandı: " + target.getFileName());
+    }
+
+    public static String digest(Path file, String algorithm) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance(algorithm);
+            try (InputStream in = Files.newInputStream(file)) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = in.read(buffer)) >= 0) digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IOException("Hash algoritması bulunamadı: " + algorithm, ex);
+        }
+    }
+
+    public static boolean hashMatches(Path file, String expected, String algorithm) {
+        if (file == null || expected == null || expected.isBlank() || !Files.isRegularFile(file)) return false;
+        try { return expected.trim().equalsIgnoreCase(digest(file, algorithm)); }
+        catch (IOException ex) { return false; }
+    }
+
+    public static void secureFile(Path file) {
+        try { Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------")); }
+        catch (Exception ignored) { }
+    }
+
+    public static void secureDir(Path dir) {
+        try { Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------")); }
+        catch (Exception ignored) { }
+    }
+
+    /** Rejects escapes, symlinks and intermediate symlink directories outside the project root. */
+    public static boolean isSafeProjectPath(Path root, Path candidate) {
+        if (root == null || candidate == null) return false;
+        Path base = root.toAbsolutePath().normalize();
+        Path target = candidate.toAbsolutePath().normalize();
+        if (!target.startsWith(base) || target.equals(base)) return false;
+        try {
+            Path realBase = root.toRealPath();
+            Path existing = target;
+            while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) existing = existing.getParent();
+            if (existing == null) return false;
+            if (Files.isSymbolicLink(existing)) return false;
+            Path realExisting = existing.toRealPath();
+            return realExisting.startsWith(realBase);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    public static Path secureTempFile(Path sibling, String suffix) throws IOException {
+        Path parent = sibling.toAbsolutePath().normalize().getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Path temp = Files.createTempFile(parent, ".eluajs-", suffix);
+        secureFile(temp);
+        return temp;
     }
 
     public static void unzip(Path zip, Path dest) throws IOException {

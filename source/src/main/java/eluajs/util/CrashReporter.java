@@ -32,8 +32,10 @@ public final class CrashReporter {
         try {
             Path file = logFile();
             Files.createDirectories(file.getParent());
+            FileUtil.secureDir(file.getParent());
             Files.writeString(file, buffer.toString(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            FileUtil.secureFile(file);
         } catch (Exception ignored) { }
     }
 

@@ -18,7 +18,7 @@ public final class ProjectLibraryManager {
             "testImplementation", "androidTestImplementation");
 
     private static final Pattern DEPENDENCY = Pattern.compile(
-            "(?m)^\\s*(implementation|api|compileOnly|runtimeOnly|annotationProcessor|testImplementation|androidTestImplementation)\\s+(platform\\()?['\"]([^'\"]+)['\"]\\)?\\s*$");
+            "(?m)^\\s*(implementation|api|compileOnly|runtimeOnly|annotationProcessor|testImplementation|androidTestImplementation)\\s*\\(?\\s*(platform\\()?\\s*['\"]([^'\"]+)['\"]\\s*\\)?\\s*\\)?\\s*$");
 
     public record Dependency(String configuration, String notation, boolean platform) {
         @Override public String toString() {
@@ -44,6 +44,7 @@ public final class ProjectLibraryManager {
         String dep = normalizeNotation(notation);
 
         Path gradle = buildGradle(projectRoot);
+        if (!eluajs.util.FileUtil.isSafeProjectPath(projectRoot, gradle)) throw new IOException("Geçersiz Gradle yolu.");
         String text = Files.readString(gradle, StandardCharsets.UTF_8);
         for (Dependency existing : list(projectRoot)) {
             if (existing.configuration().equals(cfg) && existing.notation().equals(dep) && existing.platform() == platform) {
@@ -60,10 +61,13 @@ public final class ProjectLibraryManager {
         int close = matchingBrace(text, text.indexOf('{', blockStart));
         if (close < 0) throw new IOException("app/build.gradle içindeki dependencies bloğu okunamadı.");
 
-        String line = platform
-                ? "    " + cfg + " platform('" + escapeGroovy(dep) + "')\n"
-                : "    " + cfg + " '" + escapeGroovy(dep) + "'\n";
+        boolean kts = gradle.getFileName().toString().endsWith(".kts");
+        String quoted = escapeGroovy(dep);
+        String line = kts
+                ? "    " + cfg + (platform ? "(platform(\"" + quoted + "\"))" : "(\"" + quoted + "\")") + "\n"
+                : "    " + cfg + (platform ? " platform('" + quoted + "')" : " '" + quoted + "'") + "\n";
         String updated = text.substring(0, close) + line + text.substring(close);
+        eluajs.util.FileUtil.recoveryCopy(projectRoot, gradle);
         Files.writeString(gradle, updated, StandardCharsets.UTF_8);
         return new Dependency(cfg, dep, platform);
     }
@@ -74,11 +78,14 @@ public final class ProjectLibraryManager {
         String text = Files.readString(gradle, StandardCharsets.UTF_8);
         String qCfg = Pattern.quote(dependency.configuration());
         String qDep = Pattern.quote(dependency.notation());
-        String pattern = dependency.platform()
-                ? "(?m)^\\s*" + qCfg + "\\s+platform\\(\\s*['\"]" + qDep + "['\"]\\s*\\)\\s*\\R?"
-                : "(?m)^\\s*" + qCfg + "\\s+['\"]" + qDep + "['\"]\\s*\\R?";
+        String pattern = "(?m)^\\s*" + qCfg + "\\s*\\(?\\s*"
+                + (dependency.platform() ? "platform\\(\\s*" : "")
+                + "['\"]" + qDep + "['\"]\\s*\\)?\\s*\\)?\\s*\\R?";
         String updated = text.replaceFirst(pattern, "");
-        if (!updated.equals(text)) Files.writeString(gradle, updated, StandardCharsets.UTF_8);
+        if (!updated.equals(text)) {
+            eluajs.util.FileUtil.recoveryCopy(projectRoot, gradle);
+            Files.writeString(gradle, updated, StandardCharsets.UTF_8);
+        }
     }
 
     private static String normalizeNotation(String notation) throws IOException {
@@ -97,9 +104,12 @@ public final class ProjectLibraryManager {
     }
 
     private static Path buildGradle(Path root) throws IOException {
-        Path file = root.resolve("app/build.gradle");
-        if (!Files.isRegularFile(file)) throw new IOException("app/build.gradle bulunamadı.");
-        return file;
+        Path base = ProjectLayout.moduleDir(root);
+        Path groovy = base.resolve("build.gradle");
+        if (Files.isRegularFile(groovy)) return groovy;
+        Path kts = base.resolve("build.gradle.kts");
+        if (Files.isRegularFile(kts)) return kts;
+        throw new IOException("build.gradle veya build.gradle.kts bulunamadı.");
     }
 
     private static int findDependenciesBlock(String text) {

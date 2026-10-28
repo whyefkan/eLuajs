@@ -14,9 +14,10 @@ public final class ProjectJavaClassManager {
         validatePackage(pkg);
         validateIdentifier(cls, "Sınıf adı");
 
-        Path dir = projectRoot.resolve("app/src/main/java").resolve(pkg.replace('.', '/'));
+        Path dir = ProjectLayout.moduleDir(projectRoot).resolve("src/main/java").resolve(pkg.replace('.', '/'));
         Files.createDirectories(dir);
         Path file = dir.resolve(cls + ".java");
+        if (!eluajs.util.FileUtil.isSafeProjectPath(projectRoot, file)) throw new IOException("Geçersiz Java sınıfı yolu.");
         if (Files.exists(file)) throw new IOException("Bu Java sınıfı zaten var: " + cls);
         String code = "package " + pkg + ";\n\n" +
                 "public class " + cls + " {\n" +

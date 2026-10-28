@@ -48,12 +48,14 @@ public final class ProjectGradleManager {
         Path module = ProjectLayout.moduleDir(root);
         Path build = buildFile(module);
         if (build == null) throw new IOException("build.gradle bulunamadı.");
+        if (!eluajs.util.FileUtil.isSafeProjectPath(root, build)) throw new IOException("Geçersiz build.gradle yolu.");
         String text = Files.readString(build, StandardCharsets.UTF_8);
         text = replaceValue(text, "versionCode", String.valueOf(Math.max(1, versions.versionCode())));
         text = replaceQuoted(text, "versionName", versions.versionName());
         text = replaceValue(text, "compileSdk(?:Version)?", String.valueOf(clampSdk(versions.compileSdk())));
         text = replaceValue(text, "minSdk(?:Version)?", String.valueOf(clampSdk(versions.minSdk())));
         text = replaceValue(text, "targetSdk(?:Version)?", String.valueOf(clampSdk(versions.targetSdk())));
+        FileUtil.recoveryCopy(root, build);
         FileUtil.writeStringAtomic(build, text);
         updateMetadataVersion(root, versions.versionName(), versions.versionCode());
     }
@@ -91,6 +93,7 @@ public final class ProjectGradleManager {
         set(lines, "org.gradle.daemon", String.valueOf(performance.daemon()));
         set(lines, "org.gradle.configuration-cache", String.valueOf(performance.configurationCache()));
         set(lines, "android.useAndroidX", "true");
+        FileUtil.recoveryCopy(root, file);
         FileUtil.writeStringAtomic(file, String.join("\n", lines) + "\n");
     }
 

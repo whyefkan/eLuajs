@@ -44,6 +44,7 @@ public final class SettingsDialog extends JDialog {
     private final JPasswordField apiKey = Ui.passwordField();
     private final JTextField tokenBudget = Ui.field();
     private final JCheckBox tokenBudgetEnabled = new JCheckBox(t("Bütçe sınırı"));
+    private final JCheckBox fullAccess = new JCheckBox(t("Tam yetki"));
     private final JCheckBox showKey = new JCheckBox(t("Show"));
     private final JLabel status = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
     private final JLabel savedProviders = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
@@ -298,7 +299,7 @@ public final class SettingsDialog extends JDialog {
         JPanel card = Ui.card(new BorderLayout(0, 13));
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setBorder(new EmptyBorder(16, 18, 16, 18));
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 430));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 480));
         card.add(Ui.sectionLabel(t("Active provider")), BorderLayout.NORTH);
 
         JPanel form = new JPanel();
@@ -378,6 +379,24 @@ public final class SettingsDialog extends JDialog {
             budgetRow.repaint();
         });
         form.add(budgetRow);
+        form.add(Box.createVerticalStrut(8));
+
+        JPanel accessRow = new JPanel(new BorderLayout(8, 0));
+        accessRow.setOpaque(false);
+        accessRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        accessRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
+        JPanel accessText = new JPanel();
+        accessText.setOpaque(false);
+        accessText.setLayout(new BoxLayout(accessText, BoxLayout.Y_AXIS));
+        accessText.add(Ui.label(t("AI full access"), 10, Font.BOLD, Theme.TEXT_SOFT));
+        accessText.add(Ui.label(t("Skip the diff approval dialog and apply AI edits immediately."), 10, Font.PLAIN, Theme.MUTED));
+        accessRow.add(accessText, BorderLayout.CENTER);
+        fullAccess.setOpaque(false);
+        fullAccess.setForeground(Theme.MUTED);
+        fullAccess.setFont(Theme.font(10, Font.PLAIN));
+        fullAccess.setFocusPainted(false);
+        accessRow.add(fullAccess, BorderLayout.EAST);
+        form.add(accessRow);
         form.add(Box.createVerticalStrut(8));
 
         status.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -582,6 +601,7 @@ public final class SettingsDialog extends JDialog {
         tokenBudgetEnabled.setSelected(config.tokenBudgetEnabled());
         tokenBudget.setEnabled(config.tokenBudgetEnabled());
         tokenBudget.setVisible(config.tokenBudgetEnabled());
+        fullAccess.setSelected(config.fullAccess());
         if (tokenBudget.getParent() != null) {
             tokenBudget.getParent().setMaximumSize(new Dimension(Integer.MAX_VALUE,
                     config.tokenBudgetEnabled() ? 58 : 28));
@@ -608,6 +628,7 @@ public final class SettingsDialog extends JDialog {
         config.setBaseUrl(provider, baseUrl.getText());
         config.setKey(provider, new String(apiKey.getPassword()));
         config.setTokenBudgetEnabled(tokenBudgetEnabled.isSelected());
+        config.setFullAccess(fullAccess.isSelected());
         try { config.setTokenBudget(Integer.parseInt(tokenBudget.getText().trim())); }
         catch (NumberFormatException ex) { config.setTokenBudget(24000); }
     }
@@ -736,7 +757,7 @@ public final class SettingsDialog extends JDialog {
                 g2.setColor(Theme.ACCENT);
                 g2.fillRoundRect(0, 9, 3, getHeight() - 18, 3, 3);
             } else if (getModel().isRollover()) {
-                g2.setColor(new Color(255, 255, 255, 8));
+                g2.setColor(Theme.isLight() ? new Color(0, 0, 0, 10) : new Color(255, 255, 255, 8));
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
             }
             Icons.draw(g2, iconName, 12, (getHeight() - 16) / 2, 16, active ? Theme.ACCENT : Theme.MUTED);

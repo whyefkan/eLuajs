@@ -21,6 +21,9 @@ public final class AppPaths {
             Files.createDirectories(defaultProjects());
             Files.createDirectories(tools());
             Files.createDirectories(downloads());
+            FileUtil.secureDir(config());
+            FileUtil.secureDir(tools());
+            FileUtil.secureDir(downloads());
         } catch (IOException e) {
             throw new IllegalStateException("eLuajs klasörleri oluşturulamadı", e);
         }

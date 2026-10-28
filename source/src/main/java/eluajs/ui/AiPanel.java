@@ -44,7 +44,7 @@ public final class AiPanel extends JPanel {
     private static final String SYSTEM_PROMPT = """
             You are eLuajs AI, an autonomous Android Java coding agent inside the eLuajs IDE.
             eLuajs creates real Android Gradle projects with Java + XML and builds APKs/AABs.
-            Keep solutions lightweight and compatible with old computers.
+            Keep solutions lightweight and compatible with the project toolchain.
 
             You edit the project by returning commands. The app applies them automatically.
             - READ: relative/path/File.java
@@ -70,6 +70,8 @@ public final class AiPanel extends JPanel {
     private static final int MAX_FILES_PER_REQUEST = 4;
     private static final int MAX_FILE_CHARS = 20_000;
     private static final int MAX_TOTAL_FILE_CHARS = 60_000;
+    private static final int MAX_HISTORY_MESSAGES = 120;
+    private static final int MAX_VISIBLE_COMPONENTS = 500;
     private static final int MAX_WRITE_CHARS = 500_000;
     private static final int AI_TEXT_WIDTH = 320;
     private static final int USER_TEXT_WIDTH = 260;
@@ -535,6 +537,7 @@ public final class AiPanel extends JPanel {
         lastPrompt = text;
         addBubble(true, text, false);
         history.add(AiMessage.user(text));
+        while (history.size() > MAX_HISTORY_MESSAGES) history.remove(0);
         ensureSession();
         saveSession();
         prompt.setText("");
@@ -584,6 +587,7 @@ public final class AiPanel extends JPanel {
                     LoopResult result = get();
                     addBubble(false, result.text(), false);
                     history.add(AiMessage.assistant(result.text()));
+                    while (history.size() > MAX_HISTORY_MESSAGES) history.remove(0);
                     saveSession();
                     sessionPrompt += result.promptTokens();
                     sessionCompletion += result.completionTokens();
@@ -620,9 +624,16 @@ public final class AiPanel extends JPanel {
             }
         };
         worker.execute();
+        trimConversation();
         conversation.revalidate();
         conversation.repaint();
         scrollToBottom();
+    }
+
+    private void trimConversation() {
+        while (conversation.getComponentCount() > MAX_VISIBLE_COMPONENTS) {
+            conversation.remove(0);
+        }
     }
 
     private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, boolean allowFallback, Consumer<ProgressEvent> progress) throws Exception {
@@ -777,6 +788,7 @@ public final class AiPanel extends JPanel {
     }
 
     private boolean approveChanges(List<FileWrite> writes, List<String> deletes) {
+        if (config.fullAccess()) return true;
         List<AiDiffDialog.Change> changes = new ArrayList<>();
         for (FileWrite write : writes) {
             Path target = ProjectContext.safeResolve(projectRoot, write.path());
@@ -1020,7 +1032,7 @@ public final class AiPanel extends JPanel {
                 codeBox.setBorder(new EmptyBorder(7, 9, 7, 9));
                 codeBox.setAlignmentX(Component.LEFT_ALIGNMENT);
                 WrapArea area = new WrapArea(segment.text(), width - 22, Theme.mono(11),
-                        error ? Theme.DANGER : new Color(152, 195, 121));
+                        error ? Theme.DANGER : (Theme.isLight() ? new Color(22, 101, 52) : new Color(152, 195, 121)));
                 codeBox.add(area, BorderLayout.CENTER);
                 content.add(codeBox);
                 content.add(Box.createVerticalStrut(6));
@@ -1039,7 +1051,7 @@ public final class AiPanel extends JPanel {
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         if (user) {
-            ChatBubble bubble = new ChatBubble(Theme.ACCENT_DARK, new Color(41, 118, 96), 14);
+            ChatBubble bubble = new ChatBubble(Theme.ACCENT_DARK, Theme.isLight() ? Theme.BORDER : new Color(41, 118, 96), 14);
             bubble.setLayout(new BorderLayout());
             bubble.setBorder(new EmptyBorder(9, 12, 9, 12));
             bubble.add(content, BorderLayout.CENTER);
@@ -1053,6 +1065,7 @@ public final class AiPanel extends JPanel {
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(1, rowPref.height)));
         conversation.add(row);
         conversation.add(Box.createVerticalStrut(8));
+        trimConversation();
         conversation.revalidate();
         conversation.repaint();
         scrollToBottom();
@@ -1078,6 +1091,7 @@ public final class AiPanel extends JPanel {
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(1, pref.height)));
         conversation.add(row);
         conversation.add(Box.createVerticalStrut(5));
+        trimConversation();
         conversation.revalidate();
         conversation.repaint();
         scrollToBottom();

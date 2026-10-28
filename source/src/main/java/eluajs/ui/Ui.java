@@ -305,14 +305,16 @@ public final class Ui {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             ButtonModel m = getModel();
             Color bg;
-            if (!isEnabled()) bg = new Color(35, 42, 52);
+            if (!isEnabled()) bg = Theme.isLight() ? new Color(232, 236, 242) : new Color(35, 42, 52);
             else if (primary) bg = m.isPressed() ? Theme.ACCENT.darker() : (m.isRollover() ? Theme.ACCENT_HOVER : Theme.ACCENT);
-            else if (danger) bg = m.isPressed() ? new Color(78, 33, 37) : (m.isRollover() ? new Color(66, 31, 35) : new Color(43, 27, 31));
+            else if (danger) bg = Theme.isLight()
+                    ? (m.isPressed() ? new Color(254, 202, 202) : (m.isRollover() ? new Color(254, 226, 226) : new Color(255, 241, 242)))
+                    : (m.isPressed() ? new Color(78, 33, 37) : (m.isRollover() ? new Color(66, 31, 35) : new Color(43, 27, 31)));
             else bg = m.isPressed() ? Theme.PANEL_HOVER.brighter() : (m.isRollover() ? Theme.PANEL_HOVER : Theme.PANEL_2);
             g2.setColor(bg);
             g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
             if (!primary) {
-                g2.setColor(danger ? new Color(100, 49, 54) : Theme.BORDER);
+                g2.setColor(danger ? (Theme.isLight() ? new Color(248, 113, 113) : new Color(100, 49, 54)) : Theme.BORDER);
                 g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 6, 6);
             }
             g2.dispose();

@@ -29,6 +29,7 @@ public final class ProjectActivityManager {
 
         Path javaDir = packageJavaDir(meta);
         Path javaFile = javaDir.resolve(className + ".java");
+        if (!eluajs.util.FileUtil.isSafeProjectPath(meta.rootDir(), javaFile)) throw new IOException("Geçersiz Activity yolu.");
         if (Files.exists(javaFile)) throw new IOException(className + ".java zaten var.");
 
         Files.createDirectories(javaDir);
@@ -90,7 +91,8 @@ public final class ProjectActivityManager {
     }
 
     private static Path packageJavaDir(ProjectMeta meta) {
-        return meta.rootDir().resolve("app/src/main/java").resolve(meta.packageName().replace('.', '/'));
+        return ProjectLayout.moduleDir(meta.rootDir()).resolve("src/main/java")
+                .resolve(meta.packageName().replace('.', '/'));
     }
 
     private static String normalizeClassName(String input) {
@@ -114,7 +116,8 @@ public final class ProjectActivityManager {
     }
 
     private static void registerInManifest(Path projectRoot, String className) throws IOException {
-        Path manifest = projectRoot.resolve("app/src/main/AndroidManifest.xml");
+        Path manifest = manifest(projectRoot);
+        if (!eluajs.util.FileUtil.isSafeProjectPath(projectRoot, manifest)) throw new IOException("Geçersiz manifest yolu.");
         String xml = readManifest(projectRoot);
         if (manifestHasActivity(xml, className)) return;
         int idx = xml.lastIndexOf("</application>");
@@ -123,23 +126,32 @@ public final class ProjectActivityManager {
                 "            android:name=\"." + className + "\"\n" +
                 "            android:exported=\"false\" />\n";
         String updated = xml.substring(0, idx) + entry + xml.substring(idx);
+        eluajs.util.FileUtil.recoveryCopy(projectRoot, manifest);
         Files.writeString(manifest, updated, StandardCharsets.UTF_8);
     }
 
     private static void unregisterFromManifest(Path projectRoot, String className) throws IOException {
-        Path manifest = projectRoot.resolve("app/src/main/AndroidManifest.xml");
+        Path manifest = manifest(projectRoot);
+        if (!eluajs.util.FileUtil.isSafeProjectPath(projectRoot, manifest)) throw new IOException("Geçersiz manifest yolu.");
         String xml = readManifest(projectRoot);
         String quoted = Pattern.quote(className);
         Pattern activity = Pattern.compile(
                 "(?s)\\s*<activity\\b(?=[^>]*android:name\\s*=\\s*['\"](?:\\.|[A-Za-z0-9_$.]+\\.)?" + quoted + "['\"])[^>]*(?:/\\s*>|>.*?</activity\\s*>)\\s*");
         String updated = activity.matcher(xml).replaceFirst("\n");
-        if (!updated.equals(xml)) Files.writeString(manifest, updated, StandardCharsets.UTF_8);
+        if (!updated.equals(xml)) {
+            eluajs.util.FileUtil.recoveryCopy(projectRoot, manifest);
+            Files.writeString(manifest, updated, StandardCharsets.UTF_8);
+        }
     }
 
     private static String readManifest(Path projectRoot) throws IOException {
-        Path manifest = projectRoot.resolve("app/src/main/AndroidManifest.xml");
+        Path manifest = manifest(projectRoot);
         if (!Files.isRegularFile(manifest)) throw new IOException("AndroidManifest.xml bulunamadı.");
         return Files.readString(manifest, StandardCharsets.UTF_8);
+    }
+
+    private static Path manifest(Path projectRoot) {
+        return ProjectLayout.moduleDir(projectRoot).resolve("src/main/AndroidManifest.xml");
     }
 
     private static boolean manifestHasActivity(String xml, String className) {

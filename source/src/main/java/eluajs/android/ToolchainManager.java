@@ -19,6 +19,9 @@ public final class ToolchainManager {
     public static final String BUILD_TOOLS = "35.0.0";
     public static final int ANDROID_PLATFORM = 36;
     public static final String GRADLE_URL = "https://services.gradle.org/distributions/gradle-" + GRADLE_VERSION + "-bin.zip";
+    private static final String GRADLE_SHA256 = "20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78";
+    private static final String SDK_TOOLS_SHA1_LINUX = "040d3996a65543d22ec4bf73e4c37aa37a8d4af4";
+    private static final String SDK_TOOLS_SHA1_WINDOWS = "b9862337a13e2809a5159dc3a08d058091bd59f6";
 
     public static String sdkToolsFile() {
         return "commandlinetools-" + (Platform.isWindows() ? "win" : "linux") + "-15859902_latest.zip";
@@ -72,7 +75,8 @@ public final class ToolchainManager {
         if (gradleReady()) { log.accept("Gradle " + GRADLE_VERSION + " hazır."); return; }
         AppPaths.ensureBaseDirs();
         Path zip = AppPaths.downloads().resolve("gradle-" + GRADLE_VERSION + "-bin.zip");
-        if (!Files.exists(zip)) FileUtil.download(GRADLE_URL, zip, log);
+        if (Files.exists(zip) && !FileUtil.hashMatches(zip, GRADLE_SHA256, "SHA-256")) Files.delete(zip);
+        if (!Files.exists(zip)) FileUtil.downloadVerified(GRADLE_URL, zip, GRADLE_SHA256, "SHA-256", log);
         Path tmp = AppPaths.tools().resolve("gradle-unpack");
         FileUtil.deleteTree(tmp);
         log.accept("Gradle açılıyor...");
@@ -93,7 +97,9 @@ public final class ToolchainManager {
         Files.createDirectories(sdk);
         if (!sdkManagerReady()) {
             Path zip = AppPaths.downloads().resolve(sdkToolsFile());
-            if (!Files.exists(zip)) FileUtil.download(sdkToolsUrl(), zip, log);
+            String expected = Platform.isWindows() ? SDK_TOOLS_SHA1_WINDOWS : SDK_TOOLS_SHA1_LINUX;
+            if (Files.exists(zip) && !FileUtil.hashMatches(zip, expected, "SHA-1")) Files.delete(zip);
+            if (!Files.exists(zip)) FileUtil.downloadVerified(sdkToolsUrl(), zip, expected, "SHA-1", log);
             Path tmp = AppPaths.tools().resolve("android-cmdline-unpack");
             FileUtil.deleteTree(tmp);
             log.accept("Android komut satırı araçları açılıyor...");

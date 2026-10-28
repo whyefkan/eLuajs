@@ -17,6 +17,7 @@ public final class ChatStore {
     public record Session(String id, String title, long updatedAt, List<AiMessage> messages) { }
 
     private static final Path ROOT = AppPaths.config().resolve("ai-chats");
+    private static final int MAX_STORED_MESSAGES = 200;
 
     private ChatStore() {}
 
@@ -53,19 +54,24 @@ public final class ChatStore {
                 .append(",\"title\":").append(Json.quote(title))
                 .append(",\"updatedAt\":").append(System.currentTimeMillis())
                 .append(",\"messages\":[");
-        for (int i = 0; i < session.messages().size(); i++) {
+        int from = Math.max(0, session.messages().size() - MAX_STORED_MESSAGES);
+        boolean first = true;
+        for (int i = from; i < session.messages().size(); i++) {
             AiMessage message = session.messages().get(i);
             if (message == null || message.content() == null) continue;
-            if (i > 0) json.append(',');
+            if (!first) json.append(',');
             json.append("{\"role\":").append(Json.quote(message.role()))
                     .append(",\"content\":").append(Json.quote(message.content())).append('}');
+            first = false;
         }
         json.append("]}");
         try {
             Path dir = projectDir(projectRoot);
             Files.createDirectories(dir);
+            FileUtil.secureDir(dir);
             Path file = dir.resolve(safeId(session.id()) + ".json");
             FileUtil.writeStringAtomic(file, json.toString());
+            FileUtil.secureFile(file);
         } catch (Exception ignored) { }
     }
 
@@ -90,7 +96,9 @@ public final class ChatStore {
             List<AiMessage> messages = new ArrayList<>();
             Object array = Json.at(root, "messages");
             if (array instanceof List<?> list) {
-                for (Object item : list) {
+                int from = Math.max(0, list.size() - MAX_STORED_MESSAGES);
+                for (int i = from; i < list.size(); i++) {
+                    Object item = list.get(i);
                     if (!(item instanceof java.util.Map<?, ?> map)) continue;
                     Object role = map.get("role");
                     Object content = map.get("content");
@@ -119,6 +127,15 @@ public final class ChatStore {
         return id.replaceAll("[^A-Za-z0-9._-]+", "-");
     }
 
+    private static String hash(String value) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            return java.util.HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8))).substring(0, 16);
+        } catch (Exception ex) {
+            return Integer.toHexString(value.hashCode());
+        }
+    }
+
     private static Path projectDir(Path projectRoot) {
         String name = "project";
         if (projectRoot != null) {
@@ -127,8 +144,7 @@ public final class ChatStore {
         }
         name = name.replaceAll("[^A-Za-z0-9._-]+", "-");
         if (name.isBlank()) name = "project";
-        String hash = Integer.toHexString(projectRoot == null ? 0
-                : projectRoot.toAbsolutePath().normalize().toString().hashCode());
+        String hash = hash(projectRoot == null ? "project" : projectRoot.toAbsolutePath().normalize().toString());
         return ROOT.resolve(name + "-" + hash);
     }
 }

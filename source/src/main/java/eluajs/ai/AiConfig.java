@@ -69,6 +69,14 @@ public final class AiConfig {
     public void setTokenBudgetEnabled(boolean enabled) {
         props.setProperty("tokenBudgetEnabled", enabled ? "true" : "false");
     }
+
+    public boolean fullAccess() {
+        return Boolean.parseBoolean(props.getProperty("fullAccess", "false"));
+    }
+
+    public void setFullAccess(boolean enabled) {
+        props.setProperty("fullAccess", enabled ? "true" : "false");
+    }
     public void setKey(AiProvider provider, String key) {
         if (key == null || key.isBlank()) props.remove("key." + provider.name());
         else props.setProperty("key." + provider.name(), key.trim());
@@ -80,13 +88,25 @@ public final class AiConfig {
 
     public void save() {
         Path parent = FILE.getParent();
+        Path temp = null;
         try {
             Files.createDirectories(parent);
-            try (OutputStream out = Files.newOutputStream(FILE)) {
+            eluajs.util.FileUtil.secureDir(parent);
+            temp = Files.createTempFile(parent, ".ai-", ".tmp");
+            eluajs.util.FileUtil.secureFile(temp);
+            try (OutputStream out = Files.newOutputStream(temp)) {
                 props.store(out, "eLuajs AI settings - keep this file private");
             }
-            try { Files.setPosixFilePermissions(FILE, PosixFilePermissions.fromString("rw-------")); }
-            catch (Exception ignored) { }
-        } catch (Exception ignored) { }
+            try {
+                Files.move(temp, FILE, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ex) {
+                Files.move(temp, FILE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            eluajs.util.FileUtil.secureFile(FILE);
+        } catch (Exception ignored) {
+        } finally {
+            if (temp != null) try { Files.deleteIfExists(temp); } catch (Exception ignored) { }
+        }
     }
 }

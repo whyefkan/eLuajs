@@ -11,10 +11,10 @@ public final class ProjectAssetManager {
     private ProjectAssetManager() {}
 
     public enum Destination {
-        ASSETS("assets — her tür dosya", "app/src/main/assets", false),
-        DRAWABLE("drawable — görseller / XML", "app/src/main/res/drawable", true),
-        RAW("raw — ses, json, veri", "app/src/main/res/raw", true),
-        FONT("font — TTF / OTF", "app/src/main/res/font", true);
+        ASSETS("assets — her tür dosya", "src/main/assets", false),
+        DRAWABLE("drawable — görseller / XML", "src/main/res/drawable", true),
+        RAW("raw — ses, json, veri", "src/main/res/raw", true),
+        FONT("font — TTF / OTF", "src/main/res/font", true);
 
         private final String label;
         private final String relativePath;
@@ -34,8 +34,10 @@ public final class ProjectAssetManager {
 
     public static List<Imported> importFiles(Path projectRoot, List<Path> files, Destination destination) throws IOException {
         if (files == null || files.isEmpty()) return List.of();
-        Path targetDir = projectRoot.resolve(destination.relativePath()).normalize();
-        if (!targetDir.startsWith(projectRoot.normalize())) throw new IOException("Geçersiz asset hedefi.");
+        Path targetDir = ProjectLayout.moduleDir(projectRoot).resolve(destination.relativePath()).normalize();
+        if (!targetDir.startsWith(projectRoot.normalize()) || !eluajs.util.FileUtil.isSafeProjectPath(projectRoot, targetDir)) {
+            throw new IOException("Geçersiz asset hedefi.");
+        }
         Files.createDirectories(targetDir);
 
         List<Imported> imported = new ArrayList<>();

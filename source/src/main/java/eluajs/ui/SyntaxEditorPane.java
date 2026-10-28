@@ -39,13 +39,16 @@ public final class SyntaxEditorPane extends JTextPane {
     private String mode = "text";
     private boolean loadingDocument;
     private int fontSize = 14;
-    private final List<int[]> folds = new ArrayList<>();
+    private final List<Fold> folds = new ArrayList<>();
     private final List<Object> bracketTags = new ArrayList<>();
+    private int foldSerial;
+    private boolean foldingOperation;
+    private record Fold(String marker, String hidden) { }
     private EditorFindDialog findDialog;
     private final UndoManager undoManager = new UndoManager();
     private final Timer highlightTimer;
-    private static final int HIGHLIGHT_DEBOUNCE_MS = 120;
-    private static final int MAX_HIGHLIGHT_CHARS = 1_500_000;
+    private static final int HIGHLIGHT_DEBOUNCE_MS = 180;
+    private static final int MAX_HIGHLIGHT_CHARS = 850_000;
 
     private static final Pattern JAVA_KEYWORDS = Pattern.compile("\\b(abstract|assert|boolean|break|byte|case|catch|char|class|const|continue|default|do|double|else|enum|extends|final|finally|float|for|goto|if|implements|import|instanceof|int|interface|long|native|new|package|private|protected|public|return|short|static|strictfp|super|switch|synchronized|this|throw|throws|transient|try|void|volatile|while|true|false|null|record|sealed|permits|non-sealed|var|yield)\\b");
     private static final Pattern JAVA_TYPES = Pattern.compile("\\b([A-Z][A-Za-z0-9_$]*)\\b");
@@ -139,10 +142,10 @@ public final class SyntaxEditorPane extends JTextPane {
         highlightTimer.setRepeats(false);
         getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) {
-                if (!loadingDocument) { folds.clear(); queueHighlight(); }
+                if (!loadingDocument) queueHighlight();
             }
             @Override public void removeUpdate(DocumentEvent e) {
-                if (!loadingDocument) { folds.clear(); queueHighlight(); }
+                if (!loadingDocument) queueHighlight();
             }
             @Override public void changedUpdate(DocumentEvent e) { }
         });
@@ -157,6 +160,19 @@ public final class SyntaxEditorPane extends JTextPane {
         installCompletionShortcut();
         installEditingShortcuts();
         setComponentPopupMenu(editorMenu());
+    }
+
+    @Override public String getText() {
+        String visible = super.getText();
+        if (folds.isEmpty()) return visible;
+        for (Fold fold : folds) visible = visible.replace(fold.marker(), fold.hidden());
+        return visible;
+    }
+
+    @Override public void setText(String text) {
+        folds.clear();
+        super.setText(text);
+        setEditable(true);
     }
 
     public void setFile(Path file, String text) {
@@ -385,7 +401,7 @@ public final class SyntaxEditorPane extends JTextPane {
         for (Object tag : bracketTags) highlighter.removeHighlight(tag);
         bracketTags.clear();
         String text;
-        try { text = getText(); } catch (Exception ex) { return; }
+        try { text = super.getText(); } catch (Exception ex) { return; }
         int caret = Math.min(getCaretPosition(), text.length());
         int position = -1;
         if (caret > 0 && isBracket(text.charAt(caret - 1))) position = caret - 1;
@@ -435,7 +451,11 @@ public final class SyntaxEditorPane extends JTextPane {
     }
 
     private void toggleFoldAtCaret() {
-        String text = getText();
+        if (!folds.isEmpty()) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+        String text = super.getText();
         int caret = Math.min(getCaretPosition(), text.length());
         int open = text.lastIndexOf('{', Math.max(0, caret));
         if (open < 0) return;
@@ -444,27 +464,34 @@ public final class SyntaxEditorPane extends JTextPane {
         int start = text.indexOf('\n', open);
         int end = text.lastIndexOf('\n', close);
         if (start < 0 || end <= start) return;
-        folds.clear();
-        folds.add(new int[]{start + 1, end});
-        highlightNow();
+        try {
+            StyledDocument doc = getStyledDocument();
+            String hidden = doc.getText(start + 1, end - start - 1);
+            String marker = "⟦" + (++foldSerial) + "…⟧";
+            foldingOperation = true;
+            doc.remove(start + 1, end - start - 1);
+            doc.insertString(start + 1, marker, null);
+            foldingOperation = false;
+            folds.add(new Fold(marker, hidden));
+            setEditable(false);
+            setCaretPosition(Math.min(start + 1, doc.getLength()));
+            highlightNow();
+        } catch (BadLocationException ignored) { foldingOperation = false; }
     }
 
     private void unfoldAll() {
-        folds.clear();
-        highlightNow();
-    }
-
-    private void applyFolds() {
         if (folds.isEmpty()) return;
-        StyledDocument doc = getStyledDocument();
-        SimpleAttributeSet hidden = new SimpleAttributeSet();
-        StyleConstants.setFontSize(hidden, 1);
-        StyleConstants.setForeground(hidden, getBackground());
-        for (int[] range : folds) {
-            int start = Math.max(0, Math.min(range[0], doc.getLength()));
-            int end = Math.max(start, Math.min(range[1], doc.getLength()));
-            if (end > start) doc.setCharacterAttributes(start, end - start, hidden, false);
+        StringBuilder visible = new StringBuilder(super.getText());
+        for (Fold fold : folds) {
+            int index = visible.indexOf(fold.marker());
+            if (index >= 0) visible.replace(index, index + fold.marker().length(), fold.hidden());
         }
+        folds.clear();
+        foldingOperation = true;
+        super.setText(visible.toString());
+        foldingOperation = false;
+        setEditable(true);
+        highlightNow();
     }
 
     private void showCompletion() {
@@ -602,7 +629,6 @@ public final class SyntaxEditorPane extends JTextPane {
             // Renklendirme asla dosya açmayı engellememeli. Sorun çıkarsa düz metne döneriz.
             try { doc.setCharacterAttributes(0, doc.getLength(), normal, true); } catch (Throwable ignored) { }
         }
-        applyFolds();
         if (caret <= doc.getLength()) setCaretPosition(caret);
         highlightMatchingBracket();
     }

@@ -57,11 +57,13 @@ public final class ProjectPermissionManager {
             int insert = lineStart(xml, app);
             String entry = "    <uses-permission android:name=\"" + name + "\" />\n";
             xml = xml.substring(0, insert) + entry + xml.substring(insert);
+            eluajs.util.FileUtil.recoveryCopy(root, manifest);
             Files.writeString(manifest, xml, StandardCharsets.UTF_8);
         } else if (!enabled && exists) {
             String q = Pattern.quote(name);
             String pattern = "(?m)^\\s*<uses-permission\\b(?=[^>]*android:name\\s*=\\s*['\"]" + q + "['\"])[^>]*/\\s*>\\s*\\R?";
             String updated = xml.replaceFirst(pattern, "");
+            eluajs.util.FileUtil.recoveryCopy(root, manifest);
             Files.writeString(manifest, updated, StandardCharsets.UTF_8);
         }
     }
@@ -91,8 +93,10 @@ public final class ProjectPermissionManager {
     }
 
     private static Path manifest(Path root) throws IOException {
-        Path p = root.resolve("app/src/main/AndroidManifest.xml");
-        if (!Files.isRegularFile(p)) throw new IOException("AndroidManifest.xml bulunamadı.");
+        Path p = ProjectLayout.moduleDir(root).resolve("src/main/AndroidManifest.xml");
+        if (!Files.isRegularFile(p) || !eluajs.util.FileUtil.isSafeProjectPath(root, p)) {
+            throw new IOException("AndroidManifest.xml bulunamadı veya geçersiz.");
+        }
         return p;
     }
 

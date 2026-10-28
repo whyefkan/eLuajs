@@ -32,6 +32,7 @@ public final class ProjectFileManager {
         Path layout = ProjectLayout.moduleDir(root).resolve("src/main/res/layout");
         Files.createDirectories(layout);
         Path target = layout.resolve(clean);
+        if (!eluajs.util.FileUtil.isSafeProjectPath(root, target)) throw new IOException("Geçersiz layout yolu.");
         if (Files.exists(target)) throw new IOException("Layout zaten var: " + clean);
         Files.writeString(target, """
                 <?xml version="1.0" encoding="utf-8"?>
@@ -88,14 +89,18 @@ public final class ProjectFileManager {
         Path base = parent == null ? baseRoot : parent.toAbsolutePath().normalize();
         if (!base.startsWith(baseRoot)) throw new IOException("Proje dışına çıkılamaz.");
         Path target = base.resolve(safeName(name)).normalize();
-        if (!target.startsWith(baseRoot)) throw new IOException("Proje dışına çıkılamaz.");
+        if (!target.startsWith(baseRoot) || !FileUtil.isSafeProjectPath(baseRoot, target)) {
+            throw new IOException("Proje dışına çıkılamaz.");
+        }
         return target;
     }
 
     private static Path normalizeInside(Path root, Path path) throws IOException {
         Path base = root.toAbsolutePath().normalize();
         Path target = path.toAbsolutePath().normalize();
-        if (!target.startsWith(base) || target.equals(base)) throw new IOException("Proje dışındaki yollar değiştirilemez.");
+        if (!target.startsWith(base) || target.equals(base) || !FileUtil.isSafeProjectPath(base, target)) {
+            throw new IOException("Proje dışındaki veya symlink yolları değiştirilemez.");
+        }
         return target;
     }
 
@@ -156,7 +161,7 @@ public final class ProjectFileManager {
 
     private static void copyTree(Path source, Path target) throws IOException {
         try (var walk = Files.walk(source)) {
-            for (Path path : walk.sorted(Comparator.naturalOrder()).toList()) {
+            for (Path path : walk.filter(p -> !Files.isSymbolicLink(p)).sorted(Comparator.naturalOrder()).toList()) {
                 Path dest = target.resolve(source.relativize(path));
                 if (Files.isDirectory(path)) Files.createDirectories(dest);
                 else {

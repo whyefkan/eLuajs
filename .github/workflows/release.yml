@@ -42,7 +42,9 @@ jobs:
           cat source/packaging/linux-installer.sh /tmp/eluajs-payload.tar.gz > eLuajs-linux-x86_64.run
           chmod +x eLuajs-linux-x86_64.run
       - name: Stage jar for release
-        run: cp source/out/eLuajs.jar eLuajs.jar
+        run: |
+          cp source/out/eLuajs.jar eLuajs.jar
+          sha256sum eLuajs.jar > eLuajs.jar.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -50,6 +52,7 @@ jobs:
             eLuajs-linux-x86_64.zip
             eLuajs-linux-x86_64.run
             eLuajs.jar
+            eLuajs.jar.sha256
 
   windows:
     runs-on: windows-latest

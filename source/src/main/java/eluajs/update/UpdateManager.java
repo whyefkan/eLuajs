@@ -4,6 +4,7 @@ import eluajs.ai.Json;
 import eluajs.util.AppInfo;
 import eluajs.util.Platform;
 import eluajs.util.I18n;
+import eluajs.util.FileUtil;
 
 import javax.swing.*;
 import java.awt.*;
@@ -25,7 +26,7 @@ public final class UpdateManager {
     public static final String OFFICIAL_REPO = "whyefkan/eLuajs";
 
     public record Release(String tag, String version, String notes, String pageUrl,
-                          String assetUrl, String assetName, boolean newer) { }
+                          String assetUrl, String assetName, String checksumUrl, boolean newer) { }
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
@@ -72,6 +73,7 @@ public final class UpdateManager {
         String page = Json.stringAt(root, "html_url");
         String assetUrl = null;
         String assetName = null;
+        String checksumUrl = null;
         Object assets = Json.at(root, "assets");
         if (assets instanceof List<?> list) {
             for (Object item : list) {
@@ -80,19 +82,20 @@ public final class UpdateManager {
                 Object url = map.get("browser_download_url");
                 if (name == null || url == null) continue;
                 String n = String.valueOf(name);
+                if (n.equalsIgnoreCase("eLuajs.jar.sha256")) {
+                    checksumUrl = String.valueOf(url);
+                }
                 if (n.equalsIgnoreCase("eLuajs.jar")) {
                     assetName = n;
                     assetUrl = String.valueOf(url);
-                    break;
-                }
-                if (assetUrl == null && n.toLowerCase().endsWith(".jar")) {
+                } else if (assetUrl == null && n.toLowerCase().endsWith(".jar")) {
                     assetName = n;
                     assetUrl = String.valueOf(url);
                 }
             }
         }
         boolean newer = compareVersions(version, AppInfo.version()) > 0;
-        return new Release(tag, version, notes, page, assetUrl, assetName, newer);
+        return new Release(tag, version, notes, page, assetUrl, assetName, checksumUrl, newer);
     }
 
     public static void checkOnStartup(Window owner, Consumer<Release> onUpdate) {
@@ -131,6 +134,16 @@ public final class UpdateManager {
         if (!validJar(temp)) {
             Files.deleteIfExists(temp);
             throw new IOException(I18n.t("Downloaded file is not a valid eLuajs jar"));
+        }
+        if (release.checksumUrl() == null || release.checksumUrl().isBlank()) {
+            Files.deleteIfExists(temp);
+            throw new IOException(I18n.t("Update checksum is missing; update cancelled."));
+        }
+        String checksum = fetchText(release.checksumUrl());
+        java.util.regex.Matcher hash = java.util.regex.Pattern.compile("[a-fA-F0-9]{64}").matcher(checksum);
+        if (!hash.find() || !hash.group().equalsIgnoreCase(FileUtil.digest(temp, "SHA-256"))) {
+            Files.deleteIfExists(temp);
+            throw new IOException(I18n.t("Update checksum verification failed."));
         }
         if (Platform.isWindows()) {
             installWindows(jar, temp);
@@ -213,6 +226,17 @@ public final class UpdateManager {
         Path path = Path.of(UpdateManager.class.getProtectionDomain().getCodeSource().getLocation().toURI());
         if (!Files.isRegularFile(path)) throw new IOException(I18n.t("This update mode needs a packaged eLuajs.jar"));
         return path;
+    }
+
+    private static String fetchText(String url) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(30))
+                .header("User-Agent", "eLuajs/" + AppInfo.version())
+                .GET()
+                .build();
+        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() / 100 != 2) throw new IOException("Checksum download failed: HTTP " + response.statusCode());
+        return response.body() == null ? "" : response.body();
     }
 
     private static boolean validJar(Path file) {
