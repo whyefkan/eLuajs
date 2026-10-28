@@ -11,8 +11,9 @@ import eluajs.util.FileUtil;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.nio.charset.StandardCharsets;
@@ -21,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -29,19 +31,35 @@ import java.util.regex.Pattern;
 
 import static eluajs.util.I18n.t;
 
-/** Docked, chat-style AI coding panel. The editor stays visible while the model works. */
+/** Clean, automatic AI chat panel. Edits the project directly and reports what changed. */
 public final class AiPanel extends JPanel {
     private static final Pattern CODE_BLOCK = Pattern.compile(
             "(?s)```[ \\t]*[A-Za-z0-9_+.#-]*[ \\t]*\\R(.*?)```");
     private static final Pattern WRITE_BLOCK = Pattern.compile(
             "(?ms)^[ \\t]*WRITE:[ \\t]*(.+?)[ \\t]*\\R[ \\t]*```[^\\n]*\\R(.*?)```[ \\t]*");
     private static final String SYSTEM_PROMPT = """
-            You are eLuajs AI, an autonomous Android Java coding agent integrated into the eLuajs IDE.
+            You are eLuajs AI, an autonomous Android Java coding agent inside the eLuajs IDE.
             eLuajs creates real Android Gradle projects with Java + XML and builds APKs/AABs.
             Keep solutions lightweight and compatible with old computers.
-            You can inspect and edit project files using the protocols supplied in the conversation.
-            Never invent APIs. Prefer complete, compilable files when editing.
-            If project editing is not available, return code in a fenced block and explain where to apply it.
+
+            You edit the project by returning commands. The app applies them automatically.
+            - READ: relative/path/File.java
+              (request up to 4 files; in that reply use READ lines only, no other text)
+            - WRITE: relative/path/File.java
+              ```java
+              <COMPLETE file content>
+              ```
+            - DELETE: relative/path/File.java
+
+            Rules:
+            - Inspect relevant files before editing.
+            - To change a file, return a WRITE block with the COMPLETE file content. Never use placeholders or patches.
+            - Never claim that you changed a file unless you returned a WRITE or DELETE command.
+            - Do not write outside the project or into build/, .gradle/, .git/, release/ or .eluajs/.
+            - Do not modify unrelated files. Do not invent APIs.
+            - After editing, reply with a short summary of what changed. Do not paste the code again.
+            - If the user asks a question only, do not use WRITE or DELETE.
+            - The app applies your changes directly; the user does not need to click any buttons.
             """;
 
     private static final int MAX_FILE_ROUNDS = 3;
@@ -63,11 +81,12 @@ public final class AiPanel extends JPanel {
     private AiConfig config = AiConfig.load();
     private AiProvider lastProvider;
     private final List<AiMessage> history = new ArrayList<>();
-    private String lastResponse = "";
+    private Map<Path, String> lastUndo = new LinkedHashMap<>();
+    private String lastPrompt = "";
+    private boolean busy;
 
     private final JComboBox<AiProvider> providerCombo = new JComboBox<>(AiProvider.values());
     private final JComboBox<String> modelCombo = new JComboBox<>();
-    private final JCheckBox wholeProject = new JCheckBox(t("Let AI read and edit project files"));
     private final JTextArea prompt = new JTextArea();
     private final JPanel conversation = new JPanel();
     private final JScrollPane conversationScroll;
@@ -75,15 +94,11 @@ public final class AiPanel extends JPanel {
     private final JLabel usageLabel = Ui.label("", 9, Font.PLAIN, Theme.MUTED);
     private final WorkingIndicator working = new WorkingIndicator();
     private final JButton send = Ui.iconButton(t("Send"), "send", true);
+    private final JButton undoEdits = iconOnly("undo", t("Undo AI edits"));
     private long sessionPrompt;
     private long sessionCompletion;
     private long sessionTotal;
     private double sessionCost;
-    private final JButton insert = small(t("Replace file"));
-    private final JButton replace = small(t("Replace selection"));
-    private final JButton copy = small(t("Copy"));
-    private final JButton undoEdits = small(t("Undo AI edits"));
-    private Map<Path, String> lastUndo = new LinkedHashMap<>();
     private boolean loadingProvider;
 
     public AiPanel(SyntaxEditorPane editor, Supplier<String> fileLabel, Supplier<Path> currentFile,
@@ -120,7 +135,7 @@ public final class AiPanel extends JPanel {
         JPanel root = new JPanel();
         root.setBackground(Theme.PANEL);
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-        root.setBorder(new EmptyBorder(11, 13, 9, 13));
+        root.setBorder(new EmptyBorder(10, 12, 8, 12));
 
         JPanel titleRow = new JPanel(new BorderLayout(8, 0));
         titleRow.setOpaque(false);
@@ -130,103 +145,61 @@ public final class AiPanel extends JPanel {
         titleText.add(Ui.label("✦", 13, Font.PLAIN, Theme.ACCENT));
         titleText.add(Ui.label(t("AI Assistant"), 14, Font.BOLD, Theme.TEXT));
         titleRow.add(titleText, BorderLayout.WEST);
-        JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+
+        JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
         tools.setOpaque(false);
-        JButton newChat = small(t("New chat"));
-        newChat.setToolTipText(t("Start a new conversation"));
-        newChat.addActionListener(e -> newChat());
-        JButton close = small("×");
-        close.setFont(Theme.font(14, Font.BOLD));
-        close.setToolTipText(t("Close"));
+        undoEdits.setEnabled(false);
+        undoEdits.addActionListener(e -> undoAiEdits());
+        JButton clear = iconOnly("plus", t("New chat"));
+        clear.addActionListener(e -> newChat());
+        JButton close = iconOnly("close", t("Close"));
         close.addActionListener(e -> { if (onClose != null) onClose.run(); });
-        tools.add(newChat);
+        tools.add(undoEdits);
+        tools.add(clear);
         tools.add(close);
         titleRow.add(tools, BorderLayout.EAST);
         root.add(titleRow);
-        root.add(Box.createVerticalStrut(9));
+        root.add(Box.createVerticalStrut(7));
 
-        styleCombo(providerCombo);
-        styleCombo(modelCombo);
+        Ui.styleCombo(providerCombo);
+        Ui.styleCombo(modelCombo);
+        providerCombo.setFont(Theme.font(11, Font.PLAIN));
+        modelCombo.setFont(Theme.font(11, Font.PLAIN));
         modelCombo.setEditable(true);
         styleComboEditor(modelCombo);
+        styleCombo(providerCombo);
+        styleCombo(modelCombo);
+        providerCombo.setToolTipText(t("Provider"));
         modelCombo.setToolTipText(t("You can type any model supported by the provider."));
-
         JPanel engine = new JPanel(new GridLayout(1, 2, 8, 0));
         engine.setOpaque(false);
         engine.setAlignmentX(Component.LEFT_ALIGNMENT);
-        engine.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
-        engine.add(fieldColumn(t("Provider"), providerCombo));
-        engine.add(fieldColumn(t("Model"), modelCombo));
+        engine.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        engine.add(providerCombo);
+        engine.add(modelCombo);
         root.add(engine);
-        root.add(Box.createVerticalStrut(7));
+        root.add(Box.createVerticalStrut(6));
 
-        wholeProject.setOpaque(false);
-        wholeProject.setForeground(Theme.MUTED);
-        wholeProject.setFont(Theme.font(10, Font.PLAIN));
-        wholeProject.setFocusPainted(false);
-        wholeProject.setSelected(true);
-        wholeProject.setAlignmentX(Component.LEFT_ALIGNMENT);
-        wholeProject.setToolTipText(t("AI can read and write project files directly. Reads happen on demand to save tokens."));
-        root.add(wholeProject);
-        root.add(Box.createVerticalStrut(4));
-
-        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        statusRow.setOpaque(false);
-        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        statusRow.add(working);
-        statusRow.add(status);
-        root.add(statusRow);
-        root.add(Box.createVerticalStrut(3));
-        usageLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel stats = new JPanel(new BorderLayout(8, 0));
+        stats.setOpaque(false);
+        stats.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        left.setOpaque(false);
+        left.add(working);
+        left.add(status);
+        stats.add(left, BorderLayout.CENTER);
         usageLabel.setToolTipText(t("Approximate cost based on public list prices."));
-        root.add(usageLabel);
+        stats.add(usageLabel, BorderLayout.EAST);
+        root.add(stats);
         updateUsageLabel();
         return root;
-    }
-
-    private JPanel fieldColumn(String text, JComponent component) {
-        JPanel column = new JPanel();
-        column.setOpaque(false);
-        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
-        JLabel label = Ui.label(text, 9, Font.BOLD, Theme.MUTED);
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-        component.setAlignmentX(Component.LEFT_ALIGNMENT);
-        component.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
-        column.add(label);
-        column.add(Box.createVerticalStrut(3));
-        column.add(component);
-        return column;
     }
 
     private JComponent composer() {
         JPanel root = new JPanel();
         root.setBackground(Theme.PANEL);
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-        root.setBorder(new EmptyBorder(7, 13, 11, 13));
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        actions.setOpaque(false);
-        actions.setAlignmentX(Component.LEFT_ALIGNMENT);
-        insert.setEnabled(false);
-        replace.setEnabled(false);
-        copy.setEnabled(false);
-        undoEdits.setEnabled(false);
-        undoEdits.setToolTipText(t("Restore the files changed by the last AI edit."));
-        insert.setToolTipText(t("Replace the whole open file with the generated code."));
-        replace.setToolTipText(t("Replace only the selected text with the generated code."));
-        insert.addActionListener(e -> insertCode(false));
-        replace.addActionListener(e -> insertCode(true));
-        copy.addActionListener(e -> {
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(lastResponse), null);
-            status.setText(t("Copied to clipboard."));
-        });
-        undoEdits.addActionListener(e -> undoAiEdits());
-        actions.add(insert);
-        actions.add(replace);
-        actions.add(copy);
-        actions.add(undoEdits);
-        root.add(actions);
-        root.add(Box.createVerticalStrut(7));
+        root.setBorder(new EmptyBorder(7, 12, 10, 12));
 
         prompt.setFont(Theme.font(12, Font.PLAIN));
         prompt.setBackground(Theme.PANEL_2);
@@ -237,37 +210,49 @@ public final class AiPanel extends JPanel {
         prompt.setLineWrap(true);
         prompt.setWrapStyleWord(true);
         prompt.setBorder(new EmptyBorder(8, 10, 8, 10));
-        JScrollPane promptScroll = new JScrollPane(prompt);
-        promptScroll.setBorder(null);
-        promptScroll.setOpaque(false);
-        promptScroll.getViewport().setOpaque(false);
-        promptScroll.setPreferredSize(new Dimension(1, 74));
-        promptScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 74));
-        ChatBubble promptBox = new ChatBubble(Theme.PANEL_2, Theme.BORDER, 12);
-        promptBox.setLayout(new BorderLayout());
-        promptBox.setBorder(new EmptyBorder(2, 2, 2, 2));
-        promptBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-        promptBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 80));
-        promptBox.add(promptScroll, BorderLayout.CENTER);
-        root.add(promptBox);
-        root.add(Box.createVerticalStrut(7));
+        JScrollPane scroll = new JScrollPane(prompt);
+        scroll.setBorder(null);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setPreferredSize(new Dimension(1, 72));
+        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
+
+        ChatBubble box = new ChatBubble(Theme.PANEL_2, Theme.BORDER, 12);
+        box.setLayout(new BorderLayout());
+        box.setBorder(new EmptyBorder(2, 2, 2, 2));
+        box.setAlignmentX(Component.LEFT_ALIGNMENT);
+        box.setMaximumSize(new Dimension(Integer.MAX_VALUE, 78));
+        box.add(scroll, BorderLayout.CENTER);
+        root.add(box);
+        root.add(Box.createVerticalStrut(6));
 
         JPanel bottom = new JPanel(new BorderLayout(8, 0));
         bottom.setOpaque(false);
         bottom.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JLabel hint = Ui.label("Ctrl+Enter", 9, Font.PLAIN, Theme.MUTED);
-        bottom.add(hint, BorderLayout.WEST);
+        bottom.add(Ui.label(t("Enter: send  •  Shift+Enter: new line"), 9, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
         send.addActionListener(e -> send());
         bottom.add(send, BorderLayout.EAST);
         root.add(bottom);
+
+        prompt.getDocument().addDocumentListener(new DocumentListener() {
+            public void insertUpdate(DocumentEvent e) { updateSendState(); }
+            public void removeUpdate(DocumentEvent e) { updateSendState(); }
+            public void changedUpdate(DocumentEvent e) { }
+        });
+        updateSendState();
         return root;
     }
 
-    private JButton small(String text) {
-        JButton b = Ui.button(text, false);
-        b.setFont(Theme.font(10, Font.BOLD));
-        b.setBorder(new EmptyBorder(6, 7, 6, 7));
-        return b;
+    private JButton iconOnly(String icon, String tooltip) {
+        JButton button = Ui.button("", false);
+        button.setIcon(Icons.icon(icon, Theme.TEXT_SOFT, 14));
+        button.setBorder(new EmptyBorder(5, 6, 5, 6));
+        button.setToolTipText(tooltip);
+        return button;
+    }
+
+    private void updateSendState() {
+        send.setEnabled(!busy && !prompt.getText().trim().isEmpty());
     }
 
     public void focusPrompt() {
@@ -326,10 +311,9 @@ public final class AiPanel extends JPanel {
     private void newChat() {
         conversation.removeAll();
         history.clear();
-        lastResponse = "";
+        lastPrompt = "";
         lastUndo = new LinkedHashMap<>();
         undoEdits.setEnabled(false);
-        setActionsEnabled(false);
         working.stop();
         sessionPrompt = 0;
         sessionCompletion = 0;
@@ -341,15 +325,16 @@ public final class AiPanel extends JPanel {
         conversation.repaint();
         status.setText(t("Ready."));
         status.setForeground(Theme.ACCENT);
+        updateSendState();
     }
 
     private void addWelcomeMessage() {
-        addBubble(false, t("Ask me to inspect or change the project. I can read and edit files directly, and token use stays economical."), false);
+        addBubble(false, t("Ask me to change the project. I will edit the files automatically and tell you what changed."), false);
     }
 
     private void send() {
         String text = prompt.getText().trim();
-        if (text.isEmpty()) return;
+        if (text.isEmpty() || busy) return;
         config = AiConfig.load();
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) return;
@@ -363,26 +348,26 @@ public final class AiPanel extends JPanel {
             status.setForeground(Theme.WARNING);
             return;
         }
-
         if (beforeSend != null) beforeSend.run();
 
+        lastPrompt = text;
         addBubble(true, text, false);
         history.add(AiMessage.user(text));
         prompt.setText("");
-        send.setEnabled(false);
-        setActionsEnabled(false);
+        busy = true;
+        updateSendState();
         working.start();
         status.setText(t("Thinking..."));
         status.setForeground(Theme.MUTED);
 
         JComponent pending = addBubble(false, t("Thinking..."), false);
         List<AiMessage> messages = new ArrayList<>(history);
-        boolean projectAccess = wholeProject.isSelected() && projectRoot != null && Files.isDirectory(projectRoot);
+        boolean projectAccess = projectRoot != null && Files.isDirectory(projectRoot);
         String system = buildSystemPrompt(projectAccess);
 
         SwingWorker<LoopResult, ProgressEvent> worker = new SwingWorker<>() {
             @Override protected LoopResult doInBackground() throws Exception {
-                return runAiLoop(system, messages, projectAccess, event -> publish(event));
+                return runAiLoop(system, messages, projectAccess, looksLikeChangeRequest(lastPrompt), event -> publish(event));
             }
             @Override protected void process(List<ProgressEvent> chunks) {
                 for (ProgressEvent event : chunks) {
@@ -408,11 +393,11 @@ public final class AiPanel extends JPanel {
             }
             @Override protected void done() {
                 conversation.remove(pending);
-                send.setEnabled(true);
+                busy = false;
                 working.stop();
+                updateSendState();
                 try {
                     LoopResult result = get();
-                    lastResponse = result.text();
                     addBubble(false, result.text(), false);
                     history.add(AiMessage.assistant(result.text()));
                     sessionPrompt += result.promptTokens();
@@ -428,9 +413,10 @@ public final class AiPanel extends JPanel {
                     if (!lastUndo.isEmpty()) undoEdits.setEnabled(true);
                     if (result.filesChanged() && afterFilesChanged != null) {
                         SwingUtilities.invokeLater(afterFilesChanged);
+                    } else if (!result.filesChanged() && looksLikeChangeRequest(lastPrompt)) {
+                        addSystemNote(t("No files were changed."));
                     }
                     updateUsageLabel();
-                    setActionsEnabled(true);
                     status.setText(t("Ready."));
                     status.setForeground(Theme.ACCENT);
                 } catch (Exception ex) {
@@ -453,7 +439,7 @@ public final class AiPanel extends JPanel {
         scrollToBottom();
     }
 
-    private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, Consumer<ProgressEvent> progress) throws Exception {
+    private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, boolean allowFallback, Consumer<ProgressEvent> progress) throws Exception {
         List<AiMessage> convo = new ArrayList<>(initial);
         int totalRead = 0;
         long promptTokens = 0, completionTokens = 0, totalTokens = 0;
@@ -468,7 +454,7 @@ public final class AiPanel extends JPanel {
             cost += AiPricing.estimate(usedProvider, usedModel, result.promptTokens(), result.completionTokens());
             String answer = result.text();
 
-            EditOutcome edit = projectAccess ? applyEditsIfPresent(answer, progress) : EditOutcome.NONE;
+            EditOutcome edit = projectAccess ? applyEditsIfPresent(answer, progress, allowFallback) : EditOutcome.NONE;
             if (edit.hasEdits()) {
                 return new LoopResult(edit.summary(), promptTokens, completionTokens, totalTokens, cost, edit.changed());
             }
@@ -485,7 +471,7 @@ public final class AiPanel extends JPanel {
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();
                 cost += AiPricing.estimate(usedProvider, usedModel, last.promptTokens(), last.completionTokens());
-                EditOutcome lastEdit = projectAccess ? applyEditsIfPresent(last.text(), progress) : EditOutcome.NONE;
+                EditOutcome lastEdit = projectAccess ? applyEditsIfPresent(last.text(), progress, allowFallback) : EditOutcome.NONE;
                 if (lastEdit.hasEdits()) {
                     return new LoopResult(lastEdit.summary(), promptTokens, completionTokens, totalTokens, cost, lastEdit.changed());
                 }
@@ -503,7 +489,7 @@ public final class AiPanel extends JPanel {
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();
                 cost += AiPricing.estimate(usedProvider, usedModel, last.promptTokens(), last.completionTokens());
-                EditOutcome lastEdit = projectAccess ? applyEditsIfPresent(last.text(), progress) : EditOutcome.NONE;
+                EditOutcome lastEdit = projectAccess ? applyEditsIfPresent(last.text(), progress, allowFallback) : EditOutcome.NONE;
                 if (lastEdit.hasEdits()) {
                     return new LoopResult(lastEdit.summary(), promptTokens, completionTokens, totalTokens, cost, lastEdit.changed());
                 }
@@ -512,22 +498,49 @@ public final class AiPanel extends JPanel {
         }
     }
 
-    private EditOutcome applyEditsIfPresent(String answer, Consumer<ProgressEvent> progress) {
+    private EditOutcome applyEditsIfPresent(String answer, Consumer<ProgressEvent> progress, boolean allowFallback) {
         List<FileWrite> writes = parseWrites(answer);
         List<String> deletes = parseDeletes(answer);
-        if (writes.isEmpty() && deletes.isEmpty()) return EditOutcome.NONE;
-        ApplyResult applied = applyEdits(writes, deletes, progress);
-        String summary = stripEditCommands(answer);
-        if (applied.changed() == 0) {
-            if (!applied.errors().isEmpty()) summary = t("AI could not apply changes: %s", String.join("; ", applied.errors()));
-            else if (summary.isBlank()) summary = t("No files were changed.");
-        } else if (summary.isBlank()) {
-            summary = t("Updated %d files.", applied.changed());
+        if (!writes.isEmpty() || !deletes.isEmpty()) {
+            ApplyResult applied = applyEdits(writes, deletes, progress);
+            String summary = stripAllCodeBlocks(stripEditCommands(answer)).trim();
+            if (applied.changed() == 0) {
+                if (!applied.errors().isEmpty()) summary = t("AI could not apply changes: %s", String.join("; ", applied.errors()));
+                else if (summary.isBlank()) summary = t("No files were changed.");
+            } else if (summary.isBlank()) {
+                summary = t("Updated %d files.", applied.changed());
+            }
+            if (!applied.errors().isEmpty() && !summary.contains(applied.errors().get(0))) {
+                summary += "\n\n" + t("Skipped: %s", String.join("; ", applied.errors()));
+            }
+            return new EditOutcome(true, summary, applied.changed() > 0);
         }
-        if (!applied.errors().isEmpty() && !summary.contains(applied.errors().get(0))) {
-            summary += "\n\n" + t("Skipped: %s", String.join("; ", applied.errors()));
+
+        // Fallback for change requests where a provider answers with a code block instead of WRITE.
+        Path target = currentFile == null ? null : currentFile.get();
+        if (allowFallback && projectRoot != null && target != null) {
+            Matcher matcher = CODE_BLOCK.matcher(answer);
+            if (matcher.find()) {
+                String code = matcher.group(1);
+                if (code != null && !code.isBlank()) {
+                    Path safe = ProjectContext.safeResolve(projectRoot, projectRoot.toAbsolutePath().normalize()
+                            .relativize(target.toAbsolutePath().normalize()).toString());
+                    if (safe != null) {
+                        if (!code.endsWith("\n")) code += "\n";
+                        ApplyResult applied = applyEdits(List.of(new FileWrite(
+                                projectRoot.toAbsolutePath().normalize().relativize(safe).toString(), code)), List.of(), progress);
+                        String factual = t("Updated %s.", safe.getFileName().toString());
+                        String note = stripAllCodeBlocks(answer).trim();
+                        String summary = note.isBlank() ? factual : factual + "\n\n" + note;
+                        if (applied.changed() == 0) {
+                            summary = t("AI could not apply changes: %s", String.join("; ", applied.errors()));
+                        }
+                        return new EditOutcome(true, summary, applied.changed() > 0);
+                    }
+                }
+            }
         }
-        return new EditOutcome(true, summary, applied.changed() > 0);
+        return EditOutcome.NONE;
     }
 
     private ApplyResult applyEdits(List<FileWrite> writes, List<String> deletes, Consumer<ProgressEvent> progress) {
@@ -620,6 +633,10 @@ public final class AiPanel extends JPanel {
         return out.toString().trim();
     }
 
+    private static String stripAllCodeBlocks(String answer) {
+        return CODE_BLOCK.matcher(answer == null ? "" : answer).replaceAll("").trim();
+    }
+
     private String rel(Path path) {
         return projectRoot.toAbsolutePath().normalize().relativize(path.toAbsolutePath().normalize()).toString();
     }
@@ -650,42 +667,16 @@ public final class AiPanel extends JPanel {
 
     private void updateUsageLabel() {
         if (sessionTotal <= 0) {
-            usageLabel.setText(t("Session: no usage yet"));
+            usageLabel.setText("0 tok");
         } else {
-            usageLabel.setText(t("Session: %s tokens • ~%s",
-                    AiPricing.formatTokens(sessionTotal), AiPricing.formatCost(sessionCost)));
+            usageLabel.setText(AiPricing.formatTokens(sessionTotal) + " tok • ~" + AiPricing.formatCost(sessionCost));
         }
     }
-
-    private record LoopResult(String text, long promptTokens, long completionTokens, long totalTokens, double cost, boolean filesChanged) { }
-    private record ProgressEvent(EventKind kind, List<String> paths) { }
-    private record FileWrite(String path, String content) { }
-    private record ApplyResult(int changed, List<String> errors) { }
-    private record EditOutcome(boolean hasEdits, String summary, boolean changed) {
-        static final EditOutcome NONE = new EditOutcome(false, "", false);
-    }
-    private enum EventKind { READ, WRITE, DELETE }
 
     private String buildSystemPrompt(boolean projectAccess) {
         StringBuilder b = new StringBuilder(SYSTEM_PROMPT);
         if (projectAccess) {
             b.append("\n\nPROJECT FILE TREE:\n").append(ProjectContext.tree(projectRoot));
-            b.append("\nPROJECT ACCESS PROTOCOL:\n")
-                    .append("You can inspect files by replying with ONLY READ lines:\n")
-                    .append("READ: relative/path/File.java\n")
-                    .append("(up to 4 files per turn, no other text in that reply)\n\n")
-                    .append("You can write complete files with:\n")
-                    .append("WRITE: relative/path/File.java\n")
-                    .append("```java\n<complete file content>\n```\n\n")
-                    .append("You can delete files with:\n")
-                    .append("DELETE: relative/path/File.java\n\n")
-                    .append("Rules:\n")
-                    .append("- When the user asks for a change, inspect the relevant files and then return WRITE blocks for every file you modify.\n")
-                    .append("- Always include the COMPLETE file content, never a patch or placeholder.\n")
-                    .append("- Do not write outside the project or into build/, .gradle/, .git/, release/ or .eluajs/.\n")
-                    .append("- Do not modify unrelated files. Do not invent APIs.\n")
-                    .append("- After writing, give a short summary of what changed; do not paste the full files again.\n")
-                    .append("- If you only need to read files, reply with READ lines only.\n");
         } else {
             b.append("\n\nProject editing is disabled. Return code in fenced blocks and explain where to apply it.\n");
         }
@@ -736,31 +727,53 @@ public final class AiPanel extends JPanel {
         return "Current file: " + label + "\n--- FILE START ---\n" + current + "\n--- FILE END ---";
     }
 
-    private void insertCode(boolean replaceSelection) {
-        if (lastResponse == null || lastResponse.isBlank() || editor == null) return;
-        String code = extractCode(lastResponse);
-        if (replaceSelection && editor.getSelectionStart() != editor.getSelectionEnd()) {
-            editor.replaceSelection(code);
-            status.setText(t("Selection replaced with the generated code."));
-        } else {
-            editor.setText(code);
-            editor.setCaretPosition(0);
-            status.setText(t("Code applied to the file. Save to keep it."));
-        }
-        editor.requestFocusInWindow();
+    private static boolean looksLikeChangeRequest(String text) {
+        if (text == null) return false;
+        String s = text.toLowerCase(Locale.ROOT);
+        String[] words = {"fix", "update", "change", "add", "remove", "delete", "rename", "refactor",
+                "implement", "create", "write", "düzelt", "güncelle", "değiştir", "ekle", "sil", "kaldır", "oluştur", "yaz"};
+        for (String word : words) if (s.contains(word)) return true;
+        return false;
     }
 
-    private void setActionsEnabled(boolean enabled) {
-        insert.setEnabled(enabled);
-        replace.setEnabled(enabled);
-        copy.setEnabled(enabled);
-    }
-
-    private void scrollToBottom() {
-        SwingUtilities.invokeLater(() -> {
-            JScrollBar bar = conversationScroll.getVerticalScrollBar();
-            bar.setValue(bar.getMaximum());
+    private void styleCombo(JComboBox<?> combo) {
+        combo.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                    boolean selected, boolean focus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, false);
+                label.setBackground(selected ? Theme.SELECTION : Theme.PANEL_2);
+                label.setForeground(Theme.TEXT);
+                label.setFont(Theme.font(11, Font.PLAIN));
+                label.setBorder(new EmptyBorder(3, 6, 3, 6));
+                return label;
+            }
         });
+    }
+
+    private void styleComboEditor(JComboBox<?> combo) {
+        Component editor = combo.getEditor().getEditorComponent();
+        if (editor instanceof JTextField field) {
+            field.setBackground(Theme.PANEL_2);
+            field.setForeground(Theme.TEXT);
+            field.setCaretColor(Theme.ACCENT);
+            field.setSelectionColor(Theme.SELECTION);
+            field.setSelectedTextColor(Theme.TEXT);
+            field.setFont(Theme.font(11, Font.PLAIN));
+            field.setBorder(new EmptyBorder(5, 8, 5, 8));
+        }
+    }
+
+    private void installShortcuts() {
+        InputMap im = prompt.getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap am = prompt.getActionMap();
+        AbstractAction sendAction = new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (send.isEnabled()) send();
+            }
+        };
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "eluajs-ai-send");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK), "eluajs-ai-send");
+        am.put("eluajs-ai-send", sendAction);
     }
 
     private JComponent addBubble(boolean user, String text, boolean error) {
@@ -836,6 +849,13 @@ public final class AiPanel extends JPanel {
         scrollToBottom();
     }
 
+    private void scrollToBottom() {
+        SwingUtilities.invokeLater(() -> {
+            JScrollBar bar = conversationScroll.getVerticalScrollBar();
+            bar.setValue(bar.getMaximum());
+        });
+    }
+
     private List<Segment> segments(String text) {
         List<Segment> out = new ArrayList<>();
         Matcher m = CODE_BLOCK.matcher(text);
@@ -848,49 +868,6 @@ public final class AiPanel extends JPanel {
         if (last < text.length()) out.add(new Segment(text.substring(last), false));
         if (out.isEmpty()) out.add(new Segment(text, false));
         return out;
-    }
-
-    private static String extractCode(String text) {
-        Matcher m = CODE_BLOCK.matcher(text);
-        if (m.find()) return m.group(1).stripTrailing() + "\n";
-        return text.stripTrailing() + "\n";
-    }
-
-    private void installShortcuts() {
-        InputMap im = prompt.getInputMap(JComponent.WHEN_FOCUSED);
-        ActionMap am = prompt.getActionMap();
-        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK), "eluajs-ai-send");
-        am.put("eluajs-ai-send", new AbstractAction() {
-            @Override public void actionPerformed(java.awt.event.ActionEvent e) { send(); }
-        });
-    }
-
-    private void styleCombo(JComboBox<?> combo) {
-        Ui.styleCombo(combo);
-        combo.setFont(Theme.font(11, Font.PLAIN));
-        combo.setRenderer(new DefaultListCellRenderer() {
-            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                    boolean selected, boolean focus) {
-                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, false);
-                label.setBackground(selected ? Theme.SELECTION : Theme.PANEL_2);
-                label.setForeground(Theme.TEXT);
-                label.setBorder(new EmptyBorder(3, 6, 3, 6));
-                return label;
-            }
-        });
-    }
-
-    private void styleComboEditor(JComboBox<?> combo) {
-        Component editor = combo.getEditor().getEditorComponent();
-        if (editor instanceof JTextField field) {
-            field.setBackground(Theme.PANEL_2);
-            field.setForeground(Theme.TEXT);
-            field.setCaretColor(Theme.ACCENT);
-            field.setSelectionColor(Theme.SELECTION);
-            field.setSelectedTextColor(Theme.TEXT);
-            field.setFont(Theme.font(11, Font.PLAIN));
-            field.setBorder(new EmptyBorder(5, 8, 5, 8));
-        }
     }
 
     private static String markdownToHtml(String text, Color color, int width) {
@@ -908,6 +885,16 @@ public final class AiPanel extends JPanel {
                 + "px;font-family:SansSerif;font-size:12px;color:" + hex + "'>" + html + "</body></html>";
     }
 
+    private record LoopResult(String text, long promptTokens, long completionTokens, long totalTokens, double cost, boolean filesChanged) { }
+    private record ProgressEvent(EventKind kind, List<String> paths) { }
+    private record FileWrite(String path, String content) { }
+    private record ApplyResult(int changed, List<String> errors) { }
+    private record EditOutcome(boolean hasEdits, String summary, boolean changed) {
+        static final EditOutcome NONE = new EditOutcome(false, "", false);
+    }
+    private enum EventKind { READ, WRITE, DELETE }
+    private record Segment(String text, boolean code) { }
+
     private static final class RichText extends JEditorPane {
         RichText(String html, int width) {
             setContentType("text/html");
@@ -924,36 +911,6 @@ public final class AiPanel extends JPanel {
             setMaximumSize(new Dimension(width, height));
         }
     }
-
-    private static final class WorkingIndicator extends JComponent {
-        private final Timer timer;
-        private int phase;
-        WorkingIndicator() {
-            setOpaque(false);
-            setPreferredSize(new Dimension(20, 12));
-            setMinimumSize(new Dimension(20, 12));
-            setMaximumSize(new Dimension(20, 12));
-            timer = new Timer(320, e -> { phase = (phase + 1) % 4; repaint(); });
-            setVisible(false);
-        }
-        void start() { phase = 0; setVisible(true); timer.start(); }
-        void stop() { timer.stop(); setVisible(false); repaint(); }
-        @Override protected void paintComponent(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            for (int i = 0; i < 3; i++) {
-                boolean active = phase == i;
-                g2.setColor(new Color(Theme.ACCENT.getRed(), Theme.ACCENT.getGreen(), Theme.ACCENT.getBlue(),
-                        active ? 255 : 90));
-                int size = active ? 5 : 4;
-                int y = active ? 3 : 4;
-                g2.fillOval(2 + i * 6, y, size, size);
-            }
-            g2.dispose();
-        }
-    }
-
-    private record Segment(String text, boolean code) { }
 
     private static final class WrapArea extends JTextArea {
         WrapArea(String text, int width, Font font, Color foreground) {
@@ -994,6 +951,34 @@ public final class AiPanel extends JPanel {
             }
             g2.dispose();
             super.paintComponent(g);
+        }
+    }
+
+    private static final class WorkingIndicator extends JComponent {
+        private final Timer timer;
+        private int phase;
+        WorkingIndicator() {
+            setOpaque(false);
+            setPreferredSize(new Dimension(20, 12));
+            setMinimumSize(new Dimension(20, 12));
+            setMaximumSize(new Dimension(20, 12));
+            timer = new Timer(320, e -> { phase = (phase + 1) % 4; repaint(); });
+            setVisible(false);
+        }
+        void start() { phase = 0; setVisible(true); timer.start(); }
+        void stop() { timer.stop(); setVisible(false); repaint(); }
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            for (int i = 0; i < 3; i++) {
+                boolean active = phase == i;
+                g2.setColor(new Color(Theme.ACCENT.getRed(), Theme.ACCENT.getGreen(), Theme.ACCENT.getBlue(),
+                        active ? 255 : 90));
+                int size = active ? 5 : 4;
+                int y = active ? 3 : 4;
+                g2.fillOval(2 + i * 6, y, size, size);
+            }
+            g2.dispose();
         }
     }
 }

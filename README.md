@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.4.0-37d6a4">
+  <img alt="version" src="https://img.shields.io/badge/version-1.4.1-37d6a4">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-2ea043">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows-0078d4">
   <img alt="java" src="https://img.shields.io/badge/Java-17%2B-007396">
@@ -29,7 +29,8 @@
 - **AI coding assistant** — docked chat panel, on-demand project reading, Markdown/code rendering, token usage and approximate cost.
 - **Providers** — OpenAI, Claude (Anthropic), Google Gemini, Groq, DeepSeek, OpenRouter, River AI and any OpenAI-compatible endpoint.
 - **English by default** — Turkish is available in Settings.
-- **AI agent editing** — the assistant can read, create, modify and delete project files directly; the open editor reloads automatically and edits can be undone.
+- **AI agent editing** — the assistant reads, creates, modifies and deletes project files directly; the open editor reloads automatically and edits can be undone.
+- **Clean chat composer** — press **Enter** to send and **Shift+Enter** for a new line. The AI reports what changed instead of dumping code into the chat.
 - **Auto-update** — checks the official GitHub repository on startup and can replace `app/eLuajs.jar` and restart.
 
 ## Screenshots
@@ -39,7 +40,7 @@
 | ![Hub](docs/hub-v13.png) | ![Editor](docs/editor-v13.png) |
 
 <p align="center">
-  <img src="docs/ai-v13.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v141.png" alt="eLuajs AI assistant">
 </p>
 
 ## Download
