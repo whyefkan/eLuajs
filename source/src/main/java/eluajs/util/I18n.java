@@ -466,6 +466,13 @@ public final class I18n {
         tr("AI can read and write project files directly. Reads happen on demand to save tokens.", "AI proje dosyalarını doğrudan okuyup yazabilir. Token tasarrufu için okumalar ihtiyaç anında yapılır.");
         tr("Ask me to inspect or change the project. I can read and edit files directly, and token use stays economical.", "Projeyi incelememi veya değiştirmemi iste. Dosyaları doğrudan okuyup düzenleyebilirim; token kullanımı ekonomik kalır.");
         tr("Ask me to change the project. I will edit the files automatically and tell you what changed.", "Projeyi değiştirmemi iste. Dosyaları otomatik düzenlerim ve neyi değiştirdiğimi söylerim.");
+        tr("Inspect project", "Projeyi incele");
+        tr("Fix a problem", "Bir hatayı düzelt");
+        tr("Add a new screen", "Yeni ekran ekle");
+        tr("Inspect the project and summarize its structure.", "Projeyi incele ve yapısını özetle.");
+        tr("Find and fix any obvious errors in the project.", "Projedeki belirgin hataları bul ve düzelt.");
+        tr("Create a new Android activity screen for this project.", "Bu proje için yeni bir Android activity ekranı oluştur.");
+        tr("Send (Enter)", "Gönder (Enter)");
         tr("Enter: send  •  Shift+Enter: new line", "Enter: gönder  •  Shift+Enter: yeni satır");
         tr("Updated %s.", "%s güncellendi.");
         tr("Writing: %s", "Yazılıyor: %s");

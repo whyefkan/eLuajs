@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.4.1-37d6a4">
+  <img alt="version" src="https://img.shields.io/badge/version-1.4.2-37d6a4">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-2ea043">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows-0078d4">
   <img alt="java" src="https://img.shields.io/badge/Java-17%2B-007396">
@@ -40,7 +40,7 @@
 | ![Hub](docs/hub-v13.png) | ![Editor](docs/editor-v13.png) |
 
 <p align="center">
-  <img src="docs/ai-v141.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v142.png" alt="eLuajs AI assistant">
 </p>
 
 ## Download

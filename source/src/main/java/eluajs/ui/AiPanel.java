@@ -93,7 +93,7 @@ public final class AiPanel extends JPanel {
     private final JLabel status = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
     private final JLabel usageLabel = Ui.label("", 9, Font.PLAIN, Theme.MUTED);
     private final WorkingIndicator working = new WorkingIndicator();
-    private final JButton send = Ui.iconButton(t("Send"), "send", true);
+    private final JButton send = Ui.button("", true);
     private final JButton undoEdits = iconOnly("undo", t("Undo AI edits"));
     private long sessionPrompt;
     private long sessionCompletion;
@@ -132,19 +132,17 @@ public final class AiPanel extends JPanel {
     }
 
     private JComponent header() {
-        JPanel root = new JPanel();
+        JPanel root = new JPanel(new BorderLayout(8, 0));
         root.setBackground(Theme.PANEL);
-        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-        root.setBorder(new EmptyBorder(10, 12, 8, 12));
+        root.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(8, 12, 8, 8)));
 
-        JPanel titleRow = new JPanel(new BorderLayout(8, 0));
-        titleRow.setOpaque(false);
-        titleRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         JPanel titleText = new JPanel(new FlowLayout(FlowLayout.LEFT, 7, 0));
         titleText.setOpaque(false);
         titleText.add(Ui.label("✦", 13, Font.PLAIN, Theme.ACCENT));
         titleText.add(Ui.label(t("AI Assistant"), 14, Font.BOLD, Theme.TEXT));
-        titleRow.add(titleText, BorderLayout.WEST);
+        root.add(titleText, BorderLayout.WEST);
 
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
         tools.setOpaque(false);
@@ -157,8 +155,56 @@ public final class AiPanel extends JPanel {
         tools.add(undoEdits);
         tools.add(clear);
         tools.add(close);
-        titleRow.add(tools, BorderLayout.EAST);
-        root.add(titleRow);
+        root.add(tools, BorderLayout.EAST);
+        return root;
+    }
+
+    private JComponent composer() {
+        JPanel root = new JPanel();
+        root.setBackground(Theme.PANEL);
+        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
+        root.setBorder(new EmptyBorder(8, 12, 10, 12));
+
+        prompt.setFont(Theme.font(12, Font.PLAIN));
+        prompt.setBackground(Theme.PANEL_2);
+        prompt.setForeground(Theme.TEXT);
+        prompt.setCaretColor(Theme.ACCENT);
+        prompt.setSelectionColor(Theme.SELECTION);
+        prompt.setSelectedTextColor(Theme.TEXT);
+        prompt.setLineWrap(true);
+        prompt.setWrapStyleWord(true);
+        prompt.setBorder(new EmptyBorder(8, 10, 8, 10));
+        prompt.setToolTipText(t("Enter: send  •  Shift+Enter: new line"));
+        JScrollPane scroll = new JScrollPane(prompt);
+        scroll.setBorder(null);
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setPreferredSize(new Dimension(1, 58));
+        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
+
+        ChatBubble promptBox = new ChatBubble(Theme.PANEL_2, Theme.BORDER, 12);
+        promptBox.setLayout(new BorderLayout());
+        promptBox.setBorder(new EmptyBorder(2, 2, 2, 2));
+        promptBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        promptBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 64));
+        promptBox.add(scroll, BorderLayout.CENTER);
+
+        send.setIcon(Icons.icon("send", new Color(5, 36, 28), 16));
+        send.setBorder(new EmptyBorder(8, 9, 8, 9));
+        send.setPreferredSize(new Dimension(38, 38));
+        send.setToolTipText(t("Send (Enter)"));
+        send.addActionListener(e -> send());
+
+        JPanel inputRow = new JPanel(new BorderLayout(6, 0));
+        inputRow.setOpaque(false);
+        inputRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        inputRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 68));
+        inputRow.add(promptBox, BorderLayout.CENTER);
+        JPanel sendWrap = new JPanel(new GridBagLayout());
+        sendWrap.setOpaque(false);
+        sendWrap.add(send);
+        inputRow.add(sendWrap, BorderLayout.EAST);
+        root.add(inputRow);
         root.add(Box.createVerticalStrut(7));
 
         Ui.styleCombo(providerCombo);
@@ -171,14 +217,14 @@ public final class AiPanel extends JPanel {
         styleCombo(modelCombo);
         providerCombo.setToolTipText(t("Provider"));
         modelCombo.setToolTipText(t("You can type any model supported by the provider."));
-        JPanel engine = new JPanel(new GridLayout(1, 2, 8, 0));
-        engine.setOpaque(false);
-        engine.setAlignmentX(Component.LEFT_ALIGNMENT);
-        engine.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
-        engine.add(providerCombo);
-        engine.add(modelCombo);
-        root.add(engine);
-        root.add(Box.createVerticalStrut(6));
+        JPanel modelRow = new JPanel(new GridLayout(1, 2, 7, 0));
+        modelRow.setOpaque(false);
+        modelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        modelRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        modelRow.add(providerCombo);
+        modelRow.add(modelCombo);
+        root.add(modelRow);
+        root.add(Box.createVerticalStrut(5));
 
         JPanel stats = new JPanel(new BorderLayout(8, 0));
         stats.setOpaque(false);
@@ -191,48 +237,12 @@ public final class AiPanel extends JPanel {
         usageLabel.setToolTipText(t("Approximate cost based on public list prices."));
         stats.add(usageLabel, BorderLayout.EAST);
         root.add(stats);
+        root.add(Box.createVerticalStrut(2));
         updateUsageLabel();
-        return root;
-    }
 
-    private JComponent composer() {
-        JPanel root = new JPanel();
-        root.setBackground(Theme.PANEL);
-        root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-        root.setBorder(new EmptyBorder(7, 12, 10, 12));
-
-        prompt.setFont(Theme.font(12, Font.PLAIN));
-        prompt.setBackground(Theme.PANEL_2);
-        prompt.setForeground(Theme.TEXT);
-        prompt.setCaretColor(Theme.ACCENT);
-        prompt.setSelectionColor(Theme.SELECTION);
-        prompt.setSelectedTextColor(Theme.TEXT);
-        prompt.setLineWrap(true);
-        prompt.setWrapStyleWord(true);
-        prompt.setBorder(new EmptyBorder(8, 10, 8, 10));
-        JScrollPane scroll = new JScrollPane(prompt);
-        scroll.setBorder(null);
-        scroll.setOpaque(false);
-        scroll.getViewport().setOpaque(false);
-        scroll.setPreferredSize(new Dimension(1, 72));
-        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
-
-        ChatBubble box = new ChatBubble(Theme.PANEL_2, Theme.BORDER, 12);
-        box.setLayout(new BorderLayout());
-        box.setBorder(new EmptyBorder(2, 2, 2, 2));
-        box.setAlignmentX(Component.LEFT_ALIGNMENT);
-        box.setMaximumSize(new Dimension(Integer.MAX_VALUE, 78));
-        box.add(scroll, BorderLayout.CENTER);
-        root.add(box);
-        root.add(Box.createVerticalStrut(6));
-
-        JPanel bottom = new JPanel(new BorderLayout(8, 0));
-        bottom.setOpaque(false);
-        bottom.setAlignmentX(Component.LEFT_ALIGNMENT);
-        bottom.add(Ui.label(t("Enter: send  •  Shift+Enter: new line"), 9, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
-        send.addActionListener(e -> send());
-        bottom.add(send, BorderLayout.EAST);
-        root.add(bottom);
+        JLabel hint = Ui.label(t("Enter: send  •  Shift+Enter: new line"), 9, Font.PLAIN, Theme.MUTED);
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        root.add(hint);
 
         prompt.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { updateSendState(); }
@@ -330,6 +340,31 @@ public final class AiPanel extends JPanel {
 
     private void addWelcomeMessage() {
         addBubble(false, t("Ask me to change the project. I will edit the files automatically and tell you what changed."), false);
+        addSuggestionChips();
+    }
+
+    private void addSuggestionChips() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        addChip(row, t("Inspect project"), t("Inspect the project and summarize its structure."));
+        addChip(row, t("Fix a problem"), t("Find and fix any obvious errors in the project."));
+        addChip(row, t("Add a new screen"), t("Create a new Android activity screen for this project."));
+        conversation.add(row);
+        conversation.add(Box.createVerticalStrut(6));
+    }
+
+    private void addChip(JPanel row, String label, String promptText) {
+        JButton chip = Ui.button(label, false);
+        chip.setFont(Theme.font(10, Font.BOLD));
+        chip.setBorder(new EmptyBorder(5, 8, 5, 8));
+        chip.addActionListener(e -> {
+            prompt.setText(promptText);
+            prompt.requestFocusInWindow();
+            updateSendState();
+        });
+        row.add(chip);
     }
 
     private void send() {
@@ -371,7 +406,7 @@ public final class AiPanel extends JPanel {
             }
             @Override protected void process(List<ProgressEvent> chunks) {
                 for (ProgressEvent event : chunks) {
-                    String list = String.join(", ", event.paths());
+                    String list = shortList(event.paths());
                     switch (event.kind()) {
                         case READ -> {
                             status.setText(t("Reading: %s", list));
@@ -560,7 +595,7 @@ public final class AiPanel extends JPanel {
                 }
                 FileUtil.writeStringAtomic(target, write.content());
                 changed++;
-                progress.accept(new ProgressEvent(EventKind.WRITE, List.of(rel(target))));
+                progress.accept(new ProgressEvent(EventKind.WRITE, List.of(target.getFileName().toString())));
             } catch (Exception ex) {
                 errors.add(write.path() + ": " + ex.getMessage());
             }
@@ -574,7 +609,7 @@ public final class AiPanel extends JPanel {
                 FileUtil.recoveryCopy(projectRoot, target);
                 Files.delete(target);
                 changed++;
-                progress.accept(new ProgressEvent(EventKind.DELETE, List.of(delete)));
+                progress.accept(new ProgressEvent(EventKind.DELETE, List.of(target.getFileName().toString())));
             } catch (Exception ex) {
                 errors.add(delete + ": " + ex.getMessage());
             }
@@ -834,14 +869,21 @@ public final class AiPanel extends JPanel {
         return row;
     }
 
+    private static String shortList(List<String> paths) {
+        String list = String.join(", ", paths);
+        return list.length() > 70 ? list.substring(0, 67) + "…" : list;
+    }
+
     private void addSystemNote(String text) {
         JPanel row = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         row.setOpaque(false);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        JLabel label = Ui.label(text, 9, Font.ITALIC, Theme.MUTED);
-        label.setBorder(new EmptyBorder(2, 8, 2, 8));
-        row.add(label);
+        ChatBubble chip = new ChatBubble(Theme.PANEL_2, Theme.BORDER_SOFT, 10);
+        chip.setLayout(new BorderLayout());
+        chip.setBorder(new EmptyBorder(4, 9, 4, 9));
+        chip.add(Ui.label(text, 9, Font.ITALIC, Theme.MUTED), BorderLayout.CENTER);
+        row.add(chip);
         conversation.add(row);
         conversation.add(Box.createVerticalStrut(5));
         conversation.revalidate();
