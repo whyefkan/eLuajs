@@ -1,0 +1,22 @@
+# eLuajs build outputs and portable runtime
+/app/
+/runtime/
+/source/out/
+/eLuajs
+*.jar
+*.class
+*.zip
+*.tar.gz
+*.bak
+*.part
+
+# Local IDE / OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Local app data if eLuajs is run from the repository
+.eluajs/
+eLuajsProjects/
