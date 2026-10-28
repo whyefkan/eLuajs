@@ -47,10 +47,15 @@ public final class WindowChrome {
             panel.add(minimize);
             panel.add(maximize);
             panel.add(close);
-        } else if (window instanceof Dialog dialog) {
+        } else if (window instanceof JDialog dialog) {
+            WindowButton maximize = new WindowButton("maximize", false);
+            maximize.setToolTipText("Maximize / Restore");
+            maximize.addActionListener(e -> toggleMaximize(dialog, maximize));
+            dialog.getRootPane().putClientProperty("eluajs.maxButton", maximize);
             WindowButton close = new WindowButton("close", true);
             close.setToolTipText("Close");
             close.addActionListener(e -> close(dialog));
+            panel.add(maximize);
             panel.add(close);
         }
         return panel;
@@ -60,31 +65,33 @@ public final class WindowChrome {
         window.dispatchEvent(new java.awt.event.WindowEvent(window, java.awt.event.WindowEvent.WINDOW_CLOSING));
     }
 
-    public static void toggleMaximize(JFrame frame, WindowButton button) {
-        boolean maximized = Boolean.TRUE.equals(frame.getRootPane().getClientProperty("eluajs.maximized"));
+    public static void toggleMaximize(Window window, WindowButton button) {
+        JRootPane root = window instanceof JFrame frame ? frame.getRootPane()
+                : ((JDialog) window).getRootPane();
+        boolean maximized = Boolean.TRUE.equals(root.getClientProperty("eluajs.maximized"));
         if (maximized) {
-            Object restore = frame.getRootPane().getClientProperty("eluajs.restoreBounds");
-            if (restore instanceof Rectangle rect) frame.setBounds(rect);
-            frame.getRootPane().putClientProperty("eluajs.maximized", false);
+            Object restore = root.getClientProperty("eluajs.restoreBounds");
+            if (restore instanceof Rectangle rect) window.setBounds(rect);
+            root.putClientProperty("eluajs.maximized", false);
             if (button != null) button.setIconName("maximize");
         } else {
-            frame.getRootPane().putClientProperty("eluajs.restoreBounds", frame.getBounds());
-            GraphicsConfiguration gc = frame.getGraphicsConfiguration();
+            root.putClientProperty("eluajs.restoreBounds", window.getBounds());
+            GraphicsConfiguration gc = window.getGraphicsConfiguration();
             Rectangle screen = gc.getBounds();
             Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(gc);
-            frame.setBounds(screen.x + insets.left, screen.y + insets.top,
+            window.setBounds(screen.x + insets.left, screen.y + insets.top,
                     screen.width - insets.left - insets.right,
                     screen.height - insets.top - insets.bottom);
-            frame.getRootPane().putClientProperty("eluajs.maximized", true);
+            root.putClientProperty("eluajs.maximized", true);
             if (button != null) button.setIconName("restore");
         }
     }
 
     private static void toggleFromTitle(Window window) {
-        if (window instanceof JFrame frame) {
-            Object button = frame.getRootPane().getClientProperty("eluajs.maxButton");
-            toggleMaximize(frame, button instanceof WindowButton wb ? wb : null);
-        }
+        JRootPane root = window instanceof JFrame frame ? frame.getRootPane()
+                : ((JDialog) window).getRootPane();
+        Object button = root.getClientProperty("eluajs.maxButton");
+        toggleMaximize(window, button instanceof WindowButton wb ? wb : null);
     }
 
     private static void attach(Component c, DragHandler handler) {

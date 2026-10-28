@@ -148,6 +148,11 @@ public final class Icons {
                 g2.draw(new Line2D.Float(s * .50f, s * .43f, s * .50f, s * .70f));
                 g2.fill(new Ellipse2D.Float(s * .47f, s * .27f, s * .06f, s * .06f));
             }
+            case "history" -> {
+                g2.draw(new Ellipse2D.Float(s * .18f, s * .18f, s * .64f, s * .64f));
+                g2.draw(new Line2D.Float(s * .50f, s * .32f, s * .50f, s * .52f));
+                g2.draw(new Line2D.Float(s * .50f, s * .52f, s * .66f, s * .60f));
+            }
             case "undo" -> {
                 g2.draw(new Arc2D.Float(s * .18f, s * .20f, s * .64f, s * .64f, 45, 270, Arc2D.OPEN));
                 Path2D.Float p = new Path2D.Float();

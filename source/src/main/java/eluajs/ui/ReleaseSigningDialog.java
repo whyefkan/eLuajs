@@ -29,17 +29,38 @@ public final class ReleaseSigningDialog extends JDialog {
 
     public ReleaseSigningDialog(Dialog owner, Path projectRoot, Consumer<ReleaseSigningConfig> onBuild, Runnable onOpenSettings) {
         super(owner, t("eLuajs — Play Store AAB"), true);
+        WindowChrome.install(this);
         this.projectRoot = projectRoot;
         this.onBuild = onBuild;
         this.onOpenSettings = onOpenSettings;
         setIconImage(Ui.appIcon());
-        setSize(690, 650);
-        setMinimumSize(new Dimension(620, 600));
+        setSize(720, 700);
+        setMinimumSize(new Dimension(640, 620));
         setLocationRelativeTo(owner);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         getContentPane().setBackground(Theme.BG);
         setLayout(new BorderLayout());
+        add(titleBar(), BorderLayout.NORTH);
         add(content(), BorderLayout.CENTER);
         loadSaved();
+    }
+
+    private JComponent titleBar() {
+        JPanel bar = new JPanel(new BorderLayout(12, 0));
+        bar.setBackground(Theme.TITLE_BAR);
+        bar.setPreferredSize(new Dimension(1, 54));
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(0, 16, 0, 8)));
+        JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
+        brand.setOpaque(false);
+        brand.add(new JLabel(new ImageIcon(Ui.appIcon().getScaledInstance(24, 24, Image.SCALE_SMOOTH))));
+        brand.add(Ui.label(t("Play Store AAB"), 14, Font.BOLD, Theme.TEXT));
+        brand.add(Ui.badge("v" + HubFrame.VERSION, Theme.ACCENT));
+        bar.add(Ui.centerVertically(brand), BorderLayout.WEST);
+        bar.add(Ui.centerVertically(WindowChrome.controls(this)), BorderLayout.EAST);
+        WindowChrome.enableDrag(this, bar);
+        return bar;
     }
 
     private JComponent content() {

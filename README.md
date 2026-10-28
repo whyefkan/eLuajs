@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.4.2-37d6a4">
+  <img alt="version" src="https://img.shields.io/badge/version-1.4.3-37d6a4">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux-2ea043">
   <img alt="platform" src="https://img.shields.io/badge/platform-Windows-0078d4">
   <img alt="java" src="https://img.shields.io/badge/Java-17%2B-007396">
@@ -23,13 +23,14 @@
 
 - **Lightweight by design** — no Electron, no bundled browser; a compact Java/Swing IDE that stays fast on old machines on Linux and Windows.
 - **Real Android projects** — Java + AndroidX, Gradle, `AndroidManifest.xml`, resources and standard project structure.
-- **VS Code-style shell** — activity bar, explorer sidebar, editor tabs, output panel, custom window controls and a dark theme.
+- **VS Code-style shell** — activity bar, explorer sidebar, editor tabs, output panel, custom window controls and a dark theme. The Build/Output and signing windows use the same custom chrome.
 - **Editor built for coding** — syntax highlighting, line numbers, `Ctrl+Space` completion, `Ctrl+Shift+F` project search, automatic imports.
 - **One-click output** — validate the project and build a debug APK or a signed Play Store **AAB** with an upload keystore.
 - **AI coding assistant** — docked chat panel, on-demand project reading, Markdown/code rendering, token usage and approximate cost.
 - **Providers** — OpenAI, Claude (Anthropic), Google Gemini, Groq, DeepSeek, OpenRouter, River AI and any OpenAI-compatible endpoint.
 - **English by default** — Turkish is available in Settings.
 - **AI agent editing** — the assistant reads, creates, modifies and deletes project files directly; the open editor reloads automatically and edits can be undone.
+- **Persistent AI chats** — conversations are saved per project, restored when you reopen the panel, and previous chats are available from the history button.
 - **Clean chat composer** — press **Enter** to send and **Shift+Enter** for a new line. The AI reports what changed instead of dumping code into the chat.
 - **Auto-update** — checks the official GitHub repository on startup and can replace `app/eLuajs.jar` and restart.
 
@@ -40,7 +41,11 @@
 | ![Hub](docs/hub-v13.png) | ![Editor](docs/editor-v13.png) |
 
 <p align="center">
-  <img src="docs/ai-v142.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v143.png" alt="eLuajs AI assistant">
+</p>
+
+<p align="center">
+  <img src="docs/build-v143.png" alt="eLuajs build output window">
 </p>
 
 ## Download

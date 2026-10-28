@@ -316,6 +316,9 @@ public final class I18n {
         en("↗  Hata Satırına Git", "↗  Go to Error Line");
         en("Android SDK lisans koşullarını kabul ediyorum", "I accept the Android SDK license terms");
         en("Android çıktısı al", "Build Android output");
+        en("ANDROID BUILD", "ANDROID BUILD");
+        en("TOOLCHAIN", "TOOLCHAIN");
+        en("BUILD OUTPUT", "BUILD OUTPUT");
         en("Debug APK test içindir. Play Store AAB ise upload keystore ile imzalı release çıktısı üretir.", "Debug APK is for testing. Play Store AAB produces a signed release output with your upload keystore.");
         en("Derleme günlüğü burada görünecek.\nHata konumu olan bir satıra çift tıklayarak editörde açabilirsiniz.\n", "The build log will appear here.\nDouble-click a line with an error location to open it in the editor.\n");
         en("Kontrol...", "Checking...");
@@ -518,6 +521,11 @@ public final class I18n {
         tr("Save", "Kaydet");
         tr("Cancel", "Vazgeç");
         tr("General", "Genel");
+        tr("Provider / Model", "Sağlayıcı / Model");
+        tr("API keys are in Settings.", "API anahtarları Ayarlar'da.");
+        tr("Chat history", "Sohbet geçmişi");
+        tr("No saved chats yet.", "Henüz kayıtlı sohbet yok.");
+        tr("Restored chat: %s", "Sohbet geri yüklendi: %s");
         tr("AI Assistant", "Yapay Zeka Asistanı");
         tr("Include current file as context", "Açık dosyayı bağlam olarak gönder");
         tr("Prompt", "İstek");
@@ -692,6 +700,11 @@ public final class I18n {
         tr("Connection failed: %s", "Bağlantı başarısız: %s");
         tr("Get an API key from the provider's website. Keys are stored locally in ~/.eluajs/ai.properties.", "API anahtarını sağlayıcının sitesinden alın. Anahtarlar yerel olarak ~/.eluajs/ai.properties içinde saklanır.");
         tr("No API key saved for this provider.", "Bu sağlayıcı için kayıtlı API anahtarı yok.");
+        tr("Provider / Model", "Sağlayıcı / Model");
+        tr("API keys are in Settings.", "API anahtarları Ayarlar'da.");
+        tr("Chat history", "Sohbet geçmişi");
+        tr("No saved chats yet.", "Henüz kayıtlı sohbet yok.");
+        tr("Restored chat: %s", "Sohbet geri yüklendi: %s");
         tr("AI Assistant", "Yapay Zeka Asistanı");
         tr("Ask the model to write or change code. The current file is sent as context.", "Modelden kod yazmasını veya değiştirmesini isteyin. Açık dosya bağlam olarak gönderilir.");
         tr("Prompt", "İstek");

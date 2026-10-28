@@ -1,7 +1,7 @@
 package eluajs.util;
 
 public final class AppInfo {
-    public static final String FALLBACK_VERSION = "1.4.2";
+    public static final String FALLBACK_VERSION = "1.4.3";
     private AppInfo() {}
 
     /** Reads Implementation-Version from the packaged jar, falling back to the source default. */

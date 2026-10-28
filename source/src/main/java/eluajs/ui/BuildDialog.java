@@ -42,49 +42,84 @@ public final class BuildDialog extends JDialog {
 
     public BuildDialog(Frame owner, Path projectRoot, BiConsumer<Path,Integer> navigator) {
         super(owner, t("eLuajs — Derle / APK / AAB"), true);
+        WindowChrome.install(this);
         this.projectRoot = projectRoot;
         this.navigator = navigator;
         setIconImage(Ui.appIcon());
         setSize(920, 760);
-        setMinimumSize(new Dimension(740, 620));
+        setMinimumSize(new Dimension(760, 640));
         setLocationRelativeTo(owner);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         getContentPane().setBackground(Theme.BG);
         setLayout(new BorderLayout());
+        add(titleBar(), BorderLayout.NORTH);
         add(content(), BorderLayout.CENTER);
         logFlushTimer.start();
         refreshStatuses();
         detectExistingApk();
     }
 
+    private JComponent titleBar() {
+        JPanel bar = new JPanel(new BorderLayout(12, 0));
+        bar.setBackground(Theme.TITLE_BAR);
+        bar.setPreferredSize(new Dimension(1, 54));
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(0, 16, 0, 8)));
+        JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
+        brand.setOpaque(false);
+        brand.add(new JLabel(new ImageIcon(Ui.appIcon().getScaledInstance(24, 24, Image.SCALE_SMOOTH))));
+        brand.add(Ui.label(t("Derle / APK + AAB"), 14, Font.BOLD, Theme.TEXT));
+        brand.add(Ui.badge("v" + HubFrame.VERSION, Theme.ACCENT));
+        bar.add(Ui.centerVertically(brand), BorderLayout.WEST);
+        bar.add(Ui.centerVertically(WindowChrome.controls(this)), BorderLayout.EAST);
+        WindowChrome.enableDrag(this, bar);
+        return bar;
+    }
+
     private JComponent content() {
-        JPanel root = new JPanel(new BorderLayout(0, 16));
+        JPanel root = new JPanel(new BorderLayout(0, 14));
         root.setBackground(Theme.BG);
-        root.setBorder(new EmptyBorder(24, 28, 22, 28));
+        root.setBorder(new EmptyBorder(18, 24, 20, 24));
 
         JPanel top = new JPanel();
         top.setOpaque(false);
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
-        JPanel titleLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        titleLine.setOpaque(false);
-        titleLine.add(Ui.label(t("Android çıktısı al"), 24, Font.BOLD, Theme.TEXT));
-        titleLine.add(Ui.badge("APK + SIGNED AAB", Theme.ACCENT));
-        top.add(titleLine);
-        top.add(Box.createVerticalStrut(5));
-        top.add(Ui.label(t("Debug APK test içindir. Play Store AAB ise upload keystore ile imzalı release çıktısı üretir."), 12, Font.PLAIN, Theme.MUTED));
-        top.add(Box.createVerticalStrut(18));
 
-        JPanel statuses = Ui.card(new BorderLayout());
-        JPanel statusList = new JPanel();
-        statusList.setOpaque(false);
-        statusList.setLayout(new BoxLayout(statusList, BoxLayout.Y_AXIS));
-        statusList.setBorder(new EmptyBorder(10, 14, 10, 14));
-        statusList.add(statusRow("JDK (java + javac + jlink)", javaStatus));
-        statusList.add(statusRow("Gradle " + ToolchainManager.GRADLE_VERSION, gradleStatus));
-        statusList.add(statusRow("Android SDK Manager", sdkManagerStatus));
-        statusList.add(statusRow("Android platform " + ToolchainManager.ANDROID_PLATFORM, platformStatus));
-        statusList.add(statusRow("Build Tools " + ToolchainManager.BUILD_TOOLS, buildToolsStatus));
-        statuses.add(statusList, BorderLayout.CENTER);
-        top.add(statuses);
+        JPanel kickerLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        kickerLine.setOpaque(false);
+        kickerLine.setAlignmentX(Component.LEFT_ALIGNMENT);
+        kickerLine.add(Ui.label(t("ANDROID BUILD"), 10, Font.BOLD, Theme.ACCENT));
+        kickerLine.add(Ui.badge("APK + SIGNED AAB", Theme.ACCENT));
+        top.add(kickerLine);
+        top.add(Box.createVerticalStrut(4));
+
+        JLabel title = Ui.label(t("Android çıktısı al"), 24, Font.BOLD, Theme.TEXT);
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(title);
+        top.add(Box.createVerticalStrut(5));
+
+        JLabel subtitle = Ui.label(t("Debug APK test içindir. Play Store AAB ise upload keystore ile imzalı release çıktısı üretir."), 12, Font.PLAIN, Theme.MUTED);
+        subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(subtitle);
+        top.add(Box.createVerticalStrut(15));
+
+        JPanel statusCard = Ui.card(new BorderLayout(0, 8));
+        statusCard.setAlignmentX(Component.LEFT_ALIGNMENT);
+        statusCard.setBorder(new EmptyBorder(12, 15, 12, 15));
+        statusCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 128));
+        statusCard.add(Ui.sectionLabel(t("TOOLCHAIN")), BorderLayout.NORTH);
+        JPanel statusGrid = new JPanel(new GridLayout(2, 3, 10, 8));
+        statusGrid.setOpaque(false);
+        statusGrid.add(statusChip("JDK", javaStatus));
+        statusGrid.add(statusChip("Gradle " + ToolchainManager.GRADLE_VERSION, gradleStatus));
+        statusGrid.add(statusChip("SDK Manager", sdkManagerStatus));
+        statusGrid.add(statusChip("Platform " + ToolchainManager.ANDROID_PLATFORM, platformStatus));
+        statusGrid.add(statusChip("Build Tools " + ToolchainManager.BUILD_TOOLS, buildToolsStatus));
+        statusGrid.add(new JPanel());
+        statusCard.add(statusGrid, BorderLayout.CENTER);
+        top.add(statusCard);
+
         root.add(top, BorderLayout.NORTH);
 
         log.setEditable(false);
@@ -111,30 +146,39 @@ public final class BuildDialog extends JDialog {
                 } catch (BadLocationException ignored) { }
             }
         });
+
+        JPanel logCard = Ui.card(new BorderLayout(0, 8));
+        logCard.setBorder(new EmptyBorder(12, 15, 12, 15));
+        JPanel logHead = new JPanel(new BorderLayout(8, 0));
+        logHead.setOpaque(false);
+        logHead.add(Ui.sectionLabel(t("BUILD OUTPUT")), BorderLayout.WEST);
+        JButton clear = Ui.button(t("Temizle"), false);
+        clear.setFont(Theme.font(10, Font.BOLD));
+        clear.setBorder(new EmptyBorder(4, 8, 4, 8));
+        clear.addActionListener(e -> log.setText(""));
+        logHead.add(clear, BorderLayout.EAST);
+        logCard.add(logHead, BorderLayout.NORTH);
         JScrollPane logScroll = new JScrollPane(log);
         logScroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
-        root.add(logScroll, BorderLayout.CENTER);
+        logCard.add(logScroll, BorderLayout.CENTER);
+        root.add(logCard, BorderLayout.CENTER);
 
-        JPanel bottom = new JPanel();
-        bottom.setOpaque(false);
-        bottom.setLayout(new BoxLayout(bottom, BoxLayout.Y_AXIS));
+        JPanel footer = Ui.card(new BorderLayout(0, 9));
+        footer.setBorder(new EmptyBorder(12, 15, 12, 15));
+        license.setOpaque(false);
+        license.setForeground(Theme.MUTED);
+        license.setFont(Theme.font(11, Font.PLAIN));
+        license.setFocusPainted(false);
+        footer.add(license, BorderLayout.NORTH);
 
         progress.setIndeterminate(true);
         progress.setVisible(false);
-        progress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 5));
-        progress.setPreferredSize(new Dimension(1, 5));
+        progress.setMaximumSize(new Dimension(Integer.MAX_VALUE, 4));
+        progress.setPreferredSize(new Dimension(1, 4));
         progress.setBorderPainted(false);
-        bottom.add(progress);
-        bottom.add(Box.createVerticalStrut(10));
+        footer.add(progress, BorderLayout.CENTER);
 
-        license.setOpaque(false);
-        license.setForeground(Theme.MUTED);
-        license.setFont(Theme.font(12, Font.PLAIN));
-        license.setFocusPainted(false);
-        bottom.add(license);
-        bottom.add(Box.createVerticalStrut(12));
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 7, 0));
         actions.setOpaque(false);
         prepare.addActionListener(e -> prepareSdk());
         build.addActionListener(e -> buildApk());
@@ -148,17 +192,16 @@ public final class BuildDialog extends JDialog {
         actions.add(openApk);
         actions.add(build);
         actions.add(buildAab);
-        bottom.add(actions);
-        root.add(bottom, BorderLayout.SOUTH);
+        footer.add(actions, BorderLayout.SOUTH);
+        root.add(footer, BorderLayout.SOUTH);
         getRootPane().setDefaultButton(buildAab);
         return root;
     }
 
-    private JPanel statusRow(String name, JLabel status) {
-        JPanel p = new JPanel(new BorderLayout());
+    private JPanel statusChip(String name, JLabel status) {
+        JPanel p = new JPanel(new BorderLayout(6, 0));
         p.setOpaque(false);
-        p.setBorder(new EmptyBorder(6, 0, 6, 0));
-        p.add(Ui.label(name, 13, Font.PLAIN, Theme.TEXT), BorderLayout.WEST);
+        p.add(Ui.label(name, 11, Font.PLAIN, Theme.TEXT_SOFT), BorderLayout.WEST);
         p.add(status, BorderLayout.EAST);
         return p;
     }

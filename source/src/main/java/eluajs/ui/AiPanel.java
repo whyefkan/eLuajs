@@ -4,6 +4,7 @@ import eluajs.ai.AiClient;
 import eluajs.ai.AiConfig;
 import eluajs.ai.AiMessage;
 import eluajs.ai.AiPricing;
+import eluajs.ai.ChatStore;
 import eluajs.ai.AiProvider;
 import eluajs.ai.AiResult;
 import eluajs.ai.ProjectContext;
@@ -19,6 +20,9 @@ import java.awt.event.KeyEvent;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -67,8 +71,8 @@ public final class AiPanel extends JPanel {
     private static final int MAX_FILE_CHARS = 20_000;
     private static final int MAX_TOTAL_FILE_CHARS = 60_000;
     private static final int MAX_WRITE_CHARS = 500_000;
-    private static final int AI_TEXT_WIDTH = 312;
-    private static final int USER_TEXT_WIDTH = 238;
+    private static final int AI_TEXT_WIDTH = 320;
+    private static final int USER_TEXT_WIDTH = 260;
 
     private final SyntaxEditorPane editor;
     private final Supplier<String> fileLabel;
@@ -83,13 +87,16 @@ public final class AiPanel extends JPanel {
     private final List<AiMessage> history = new ArrayList<>();
     private Map<Path, String> lastUndo = new LinkedHashMap<>();
     private String lastPrompt = "";
+    private String sessionId;
     private boolean busy;
 
-    private final JComboBox<AiProvider> providerCombo = new JComboBox<>(AiProvider.values());
-    private final JComboBox<String> modelCombo = new JComboBox<>();
     private final JTextArea prompt = new JTextArea();
     private final JPanel conversation = new JPanel();
     private final JScrollPane conversationScroll;
+    private final CardLayout chatCards = new CardLayout();
+    private final JPanel chatArea = new JPanel(chatCards);
+    private final JComboBox<AiProvider> providerCombo = new JComboBox<>(AiProvider.values());
+    private final JComboBox<String> modelCombo = new JComboBox<>();
     private final JLabel status = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
     private final JLabel usageLabel = Ui.label("", 9, Font.PLAIN, Theme.MUTED);
     private final WorkingIndicator working = new WorkingIndicator();
@@ -123,12 +130,15 @@ public final class AiPanel extends JPanel {
         conversationScroll.getViewport().setBackground(Theme.CONSOLE);
         conversationScroll.getVerticalScrollBar().setUnitIncrement(18);
 
+        chatArea.setOpaque(false);
+        chatArea.add(buildWelcomePanel(), "welcome");
+        chatArea.add(conversationScroll, "chat");
         add(header(), BorderLayout.NORTH);
-        add(conversationScroll, BorderLayout.CENTER);
+        add(chatArea, BorderLayout.CENTER);
         add(composer(), BorderLayout.SOUTH);
         initialise();
         installShortcuts();
-        addWelcomeMessage();
+        restoreLatest();
     }
 
     private JComponent header() {
@@ -148,10 +158,13 @@ public final class AiPanel extends JPanel {
         tools.setOpaque(false);
         undoEdits.setEnabled(false);
         undoEdits.addActionListener(e -> undoAiEdits());
+        JButton history = iconOnly("history", t("Chat history"));
+        history.addActionListener(e -> showHistory(history));
         JButton clear = iconOnly("plus", t("New chat"));
         clear.addActionListener(e -> newChat());
         JButton close = iconOnly("close", t("Close"));
         close.addActionListener(e -> { if (onClose != null) onClose.run(); });
+        tools.add(history);
         tools.add(undoEdits);
         tools.add(clear);
         tools.add(close);
@@ -195,6 +208,15 @@ public final class AiPanel extends JPanel {
         send.setToolTipText(t("Send (Enter)"));
         send.addActionListener(e -> send());
 
+        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        statusRow.setOpaque(false);
+        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        statusRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
+        statusRow.add(working);
+        statusRow.add(status);
+        root.add(statusRow);
+        root.add(Box.createVerticalStrut(5));
+
         JPanel inputRow = new JPanel(new BorderLayout(6, 0));
         inputRow.setOpaque(false);
         inputRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -205,7 +227,7 @@ public final class AiPanel extends JPanel {
         sendWrap.add(send);
         inputRow.add(sendWrap, BorderLayout.EAST);
         root.add(inputRow);
-        root.add(Box.createVerticalStrut(7));
+        root.add(Box.createVerticalStrut(6));
 
         Ui.styleCombo(providerCombo);
         Ui.styleCombo(modelCombo);
@@ -224,25 +246,17 @@ public final class AiPanel extends JPanel {
         modelRow.add(providerCombo);
         modelRow.add(modelCombo);
         root.add(modelRow);
-        root.add(Box.createVerticalStrut(5));
+        root.add(Box.createVerticalStrut(4));
 
-        JPanel stats = new JPanel(new BorderLayout(8, 0));
-        stats.setOpaque(false);
-        stats.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        left.setOpaque(false);
-        left.add(working);
-        left.add(status);
-        stats.add(left, BorderLayout.CENTER);
+        JPanel bottomRow = new JPanel(new BorderLayout(8, 0));
+        bottomRow.setOpaque(false);
+        bottomRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        bottomRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
+        bottomRow.add(Ui.label(t("Enter: send  •  Shift+Enter: new line"), 9, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
         usageLabel.setToolTipText(t("Approximate cost based on public list prices."));
-        stats.add(usageLabel, BorderLayout.EAST);
-        root.add(stats);
-        root.add(Box.createVerticalStrut(2));
+        bottomRow.add(usageLabel, BorderLayout.EAST);
+        root.add(bottomRow);
         updateUsageLabel();
-
-        JLabel hint = Ui.label(t("Enter: send  •  Shift+Enter: new line"), 9, Font.PLAIN, Theme.MUTED);
-        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        root.add(hint);
 
         prompt.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { updateSendState(); }
@@ -290,6 +304,17 @@ public final class AiPanel extends JPanel {
             if (next != null) config.setProvider(next);
             loadModels();
             config.save();
+            updateKeyStatus();
+        });
+        modelCombo.addActionListener(e -> {
+            if (loadingProvider) return;
+            AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
+            if (provider == null) return;
+            Object model = modelCombo.isEditable() ? modelCombo.getEditor().getItem() : modelCombo.getSelectedItem();
+            config.setProvider(provider);
+            config.setModel(provider, model == null ? "" : String.valueOf(model));
+            config.save();
+            updateKeyStatus();
         });
     }
 
@@ -312,15 +337,63 @@ public final class AiPanel extends JPanel {
 
     private void updateKeyStatus() {
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
-        if (provider == null) return;
+        if (provider == null) provider = config.provider();
         boolean ready = config.hasKey(provider);
         status.setText(ready ? t("Ready.") : t("No API key configured. Open Settings and add one."));
         status.setForeground(ready ? Theme.ACCENT : Theme.WARNING);
     }
 
+    private void showWelcome() {
+        chatCards.show(chatArea, "welcome");
+        prompt.requestFocusInWindow();
+    }
+
+    private JComponent buildWelcomePanel() {
+        JPanel root = new JPanel(new GridBagLayout());
+        root.setBackground(Theme.CONSOLE);
+        JPanel card = new JPanel();
+        card.setOpaque(false);
+        card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+
+        JLabel icon = new JLabel(Icons.icon("ai", Theme.ACCENT, 38));
+        icon.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel title = Ui.label(t("eLuajs AI"), 23, Font.BOLD, Theme.TEXT);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel subtitle = Ui.label(t("Ask me to inspect or change the project. Files are updated automatically."), 11, Font.PLAIN, Theme.MUTED);
+        subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        card.add(icon);
+        card.add(Box.createVerticalStrut(9));
+        card.add(title);
+        card.add(Box.createVerticalStrut(6));
+        card.add(subtitle);
+        card.add(Box.createVerticalStrut(16));
+
+        JPanel chips = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 6));
+        chips.setOpaque(false);
+        welcomeChip(chips, t("Inspect project"), t("Inspect the project and summarize its structure."));
+        welcomeChip(chips, t("Fix a problem"), t("Find and fix any obvious errors in the project."));
+        welcomeChip(chips, t("Add a new screen"), t("Create a new Android activity screen for this project."));
+        card.add(chips);
+        root.add(card);
+        return root;
+    }
+
+    private void welcomeChip(JPanel row, String label, String promptText) {
+        JButton chip = Ui.button(label, false);
+        chip.setFont(Theme.font(10, Font.BOLD));
+        chip.setBorder(new EmptyBorder(6, 9, 6, 9));
+        chip.addActionListener(e -> {
+            prompt.setText(promptText);
+            prompt.requestFocusInWindow();
+            updateSendState();
+        });
+        row.add(chip);
+    }
+
     private void newChat() {
         conversation.removeAll();
         history.clear();
+        sessionId = null;
         lastPrompt = "";
         lastUndo = new LinkedHashMap<>();
         undoEdits.setEnabled(false);
@@ -330,41 +403,100 @@ public final class AiPanel extends JPanel {
         sessionTotal = 0;
         sessionCost = 0;
         updateUsageLabel();
-        addWelcomeMessage();
         conversation.revalidate();
         conversation.repaint();
         status.setText(t("Ready."));
         status.setForeground(Theme.ACCENT);
         updateSendState();
+        showWelcome();
+        updateKeyStatus();
     }
 
-    private void addWelcomeMessage() {
-        addBubble(false, t("Ask me to change the project. I will edit the files automatically and tell you what changed."), false);
-        addSuggestionChips();
+    private void restoreLatest() {
+        ChatStore.Session session = ChatStore.latest(projectRoot);
+        if (session != null && !session.messages().isEmpty()) loadSession(session);
+        else showWelcome();
     }
 
-    private void addSuggestionChips() {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        row.setOpaque(false);
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        addChip(row, t("Inspect project"), t("Inspect the project and summarize its structure."));
-        addChip(row, t("Fix a problem"), t("Find and fix any obvious errors in the project."));
-        addChip(row, t("Add a new screen"), t("Create a new Android activity screen for this project."));
-        conversation.add(row);
-        conversation.add(Box.createVerticalStrut(6));
+    private void loadSession(ChatStore.Session session) {
+        conversation.removeAll();
+        history.clear();
+        sessionId = session.id();
+        chatCards.show(chatArea, "chat");
+        lastPrompt = "";
+        for (AiMessage message : session.messages()) {
+            boolean user = "user".equalsIgnoreCase(message.role());
+            addBubble(user, message.content(), false);
+            history.add(message);
+            if (user) lastPrompt = message.content();
+        }
+        lastUndo = new LinkedHashMap<>();
+        undoEdits.setEnabled(false);
+        sessionPrompt = 0;
+        sessionCompletion = 0;
+        sessionTotal = 0;
+        sessionCost = 0;
+        updateUsageLabel();
+        status.setText(t("Restored chat: %s", session.title()));
+        status.setForeground(Theme.MUTED);
+        SwingUtilities.invokeLater(this::scrollToBottom);
     }
 
-    private void addChip(JPanel row, String label, String promptText) {
-        JButton chip = Ui.button(label, false);
-        chip.setFont(Theme.font(10, Font.BOLD));
-        chip.setBorder(new EmptyBorder(5, 8, 5, 8));
-        chip.addActionListener(e -> {
-            prompt.setText(promptText);
-            prompt.requestFocusInWindow();
-            updateSendState();
-        });
-        row.add(chip);
+    private void ensureSession() {
+        if (sessionId == null || sessionId.isBlank()) sessionId = ChatStore.newId();
+    }
+
+    private void saveSession() {
+        if (sessionId == null || sessionId.isBlank() || history.isEmpty()) return;
+        ChatStore.save(projectRoot, new ChatStore.Session(sessionId, ChatStore.titleFor(history),
+                System.currentTimeMillis(), new ArrayList<>(history)));
+    }
+
+    private void showHistory(JButton anchor) {
+        List<ChatStore.Session> sessions = ChatStore.list(projectRoot);
+        JPopupMenu popup = new JPopupMenu();
+        popup.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+        JPanel panel = new JPanel();
+        panel.setBackground(Theme.PANEL);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(new EmptyBorder(8, 9, 8, 9));
+        JLabel title = Ui.sectionLabel(t("Chat history"));
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.add(title);
+        panel.add(Box.createVerticalStrut(5));
+        if (sessions.isEmpty()) {
+            JLabel empty = Ui.label(t("No saved chats yet."), 10, Font.PLAIN, Theme.MUTED);
+            empty.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(empty);
+        } else {
+            DateTimeFormatter format = DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.systemDefault());
+            for (ChatStore.Session session : sessions) {
+                JButton item = Ui.button("", false);
+                item.setHorizontalAlignment(SwingConstants.LEFT);
+                item.setFont(Theme.font(10, Font.PLAIN));
+                item.setBorder(new EmptyBorder(5, 8, 5, 8));
+                String date = format.format(Instant.ofEpochMilli(session.updatedAt()));
+                String label = session.title();
+                if (label.length() > 34) label = label.substring(0, 31) + "…";
+                item.setText(label + "   ·   " + date);
+                item.setToolTipText(session.title() + "  ·  " + date);
+                item.setMaximumSize(new Dimension(Integer.MAX_VALUE, 28));
+                item.addActionListener(e -> {
+                    popup.setVisible(false);
+                    loadSession(session);
+                });
+                panel.add(item);
+                panel.add(Box.createVerticalStrut(2));
+            }
+        }
+        JScrollPane scroll = new JScrollPane(panel);
+        scroll.setBorder(null);
+        scroll.getViewport().setBackground(Theme.PANEL);
+        int popupWidth = 320;
+        int height = sessions.isEmpty() ? 80 : Math.min(340, 54 + sessions.size() * 30);
+        popup.setPopupSize(popupWidth, height);
+        popup.add(scroll);
+        popup.show(anchor, -popupWidth + anchor.getWidth(), anchor.getHeight());
     }
 
     private void send() {
@@ -372,12 +504,13 @@ public final class AiPanel extends JPanel {
         if (text.isEmpty() || busy) return;
         config = AiConfig.load();
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
-        if (provider == null) return;
+        if (provider == null) provider = config.provider();
         Object model = modelCombo.isEditable() ? modelCombo.getEditor().getItem() : modelCombo.getSelectedItem();
         config.setProvider(provider);
         config.setModel(provider, model == null ? "" : String.valueOf(model));
         config.save();
         if (!config.hasKey(provider)) {
+            chatCards.show(chatArea, "chat");
             addBubble(false, t("No API key configured. Open Settings and add one."), true);
             status.setText(t("No API key configured. Open Settings and add one."));
             status.setForeground(Theme.WARNING);
@@ -385,9 +518,12 @@ public final class AiPanel extends JPanel {
         }
         if (beforeSend != null) beforeSend.run();
 
+        chatCards.show(chatArea, "chat");
         lastPrompt = text;
         addBubble(true, text, false);
         history.add(AiMessage.user(text));
+        ensureSession();
+        saveSession();
         prompt.setText("");
         busy = true;
         updateSendState();
@@ -435,6 +571,7 @@ public final class AiPanel extends JPanel {
                     LoopResult result = get();
                     addBubble(false, result.text(), false);
                     history.add(AiMessage.assistant(result.text()));
+                    saveSession();
                     sessionPrompt += result.promptTokens();
                     sessionCompletion += result.completionTokens();
                     sessionTotal += result.totalTokens();
@@ -459,6 +596,7 @@ public final class AiPanel extends JPanel {
                     if (!history.isEmpty() && "user".equals(history.get(history.size() - 1).role())) {
                         history.remove(history.size() - 1);
                     }
+                    saveSession();
                     addBubble(false, t("Request failed: %s", cause.getMessage()), true);
                     status.setText(t("Request failed: %s", cause.getMessage()));
                     status.setForeground(Theme.DANGER);
@@ -818,15 +956,6 @@ public final class AiPanel extends JPanel {
         content.setOpaque(false);
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
 
-        JPanel roleRow = new JPanel(new FlowLayout(user ? FlowLayout.RIGHT : FlowLayout.LEFT, 4, 0));
-        roleRow.setOpaque(false);
-        roleRow.setAlignmentX(user ? Component.RIGHT_ALIGNMENT : Component.LEFT_ALIGNMENT);
-        roleRow.add(new JLabel(Icons.icon(user ? "user" : "ai", user ? Theme.ACCENT_HOVER : Theme.BLUE, 11)));
-        roleRow.add(Ui.label(user ? t("You") : t("eLuajs AI"), 9, Font.BOLD,
-                user ? Theme.ACCENT_HOVER : Theme.BLUE));
-        content.add(roleRow);
-        content.add(Box.createVerticalStrut(4));
-
         Color textColor = user ? Theme.TEXT : (error ? Theme.DANGER : Theme.TEXT_SOFT);
         for (Segment segment : segments(text)) {
             if (segment.code()) {
@@ -840,27 +969,32 @@ public final class AiPanel extends JPanel {
                 content.add(codeBox);
                 content.add(Box.createVerticalStrut(6));
             } else {
-                String clean = segment.text().strip();
+                String clean = cleanInlineMarkdown(segment.text().strip());
                 if (clean.isBlank()) continue;
-                RichText rich = new RichText(markdownToHtml(clean, textColor, width), width);
-                rich.setAlignmentX(Component.LEFT_ALIGNMENT);
-                content.add(rich);
+                WrapArea area = new WrapArea(clean, width, Theme.font(12, Font.PLAIN), textColor);
+                area.setAlignmentX(Component.LEFT_ALIGNMENT);
+                content.add(area);
                 content.add(Box.createVerticalStrut(4));
             }
         }
-
-        ChatBubble bubble = new ChatBubble(user ? Theme.ACCENT_DARK : Theme.PANEL_2,
-                user ? new Color(41, 118, 96) : Theme.BORDER_SOFT, 14);
-        bubble.setLayout(new BorderLayout());
-        bubble.setBorder(new EmptyBorder(9, 12, 9, 12));
-        bubble.add(content, BorderLayout.CENTER);
-        bubble.setMaximumSize(new Dimension(width + 24, Integer.MAX_VALUE));
 
         JPanel row = new JPanel(new FlowLayout(user ? FlowLayout.RIGHT : FlowLayout.LEFT, 0, 0));
         row.setOpaque(false);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        row.add(bubble);
+        if (user) {
+            ChatBubble bubble = new ChatBubble(Theme.ACCENT_DARK, new Color(41, 118, 96), 14);
+            bubble.setLayout(new BorderLayout());
+            bubble.setBorder(new EmptyBorder(9, 12, 9, 12));
+            bubble.add(content, BorderLayout.CENTER);
+            bubble.setMaximumSize(new Dimension(width + 24, Integer.MAX_VALUE));
+            row.add(bubble);
+        } else {
+            content.setMaximumSize(new Dimension(width + 8, Integer.MAX_VALUE));
+            row.add(content);
+        }
+        Dimension rowPref = row.getPreferredSize();
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(1, rowPref.height)));
         conversation.add(row);
         conversation.add(Box.createVerticalStrut(8));
         conversation.revalidate();
@@ -884,6 +1018,8 @@ public final class AiPanel extends JPanel {
         chip.setBorder(new EmptyBorder(4, 9, 4, 9));
         chip.add(Ui.label(text, 9, Font.ITALIC, Theme.MUTED), BorderLayout.CENTER);
         row.add(chip);
+        Dimension pref = row.getPreferredSize();
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(1, pref.height)));
         conversation.add(row);
         conversation.add(Box.createVerticalStrut(5));
         conversation.revalidate();
@@ -910,6 +1046,13 @@ public final class AiPanel extends JPanel {
         if (last < text.length()) out.add(new Segment(text.substring(last), false));
         if (out.isEmpty()) out.add(new Segment(text, false));
         return out;
+    }
+
+    private static String cleanInlineMarkdown(String text) {
+        String s = text.replace("**", "").replace("__", "").replace("~~", "").replace("`", "");
+        s = s.replaceAll("(?m)^\\s*#{1,6}\\s+", "");
+        s = s.replaceAll("(?m)^\\s*[-*]\\s+", "• ");
+        return s.replace("*", "").trim();
     }
 
     private static String markdownToHtml(String text, Color color, int width) {
