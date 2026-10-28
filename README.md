@@ -38,7 +38,7 @@
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v13.png) | ![Editor](docs/editor-v13.png) |
+| ![Hub](docs/hub-v143.png) | ![Editor](docs/editor-v13.png) |
 
 <p align="center">
   <img src="docs/ai-v143.png" alt="eLuajs AI assistant">
