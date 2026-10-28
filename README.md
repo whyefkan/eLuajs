@@ -34,11 +34,11 @@
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub.png) | ![Editor](docs/editor.png) |
+| ![Hub](docs/hub-v13.png) | ![Editor](docs/editor-v13.png) |
 
 | AI assistant | Settings |
 | --- | --- |
-| ![AI assistant](docs/ai.png) | ![Settings](docs/settings.png) |
+| ![AI assistant](docs/ai-v13.png) | ![Settings](docs/settings-v13.png) |
 
 ## Download
 
