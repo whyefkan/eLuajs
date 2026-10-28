@@ -8,6 +8,12 @@ import eluajs.project.ProjectAssetManager;
 import eluajs.project.ProjectLibraryManager;
 import eluajs.project.ProjectPermissionManager;
 import eluajs.project.ProjectSearch;
+import eluajs.project.ProjectImporter;
+import eluajs.project.ProjectFileManager;
+import eluajs.project.ProjectGradleManager;
+import eluajs.project.ProjectLayout;
+import eluajs.project.BuildArtifacts;
+import eluajs.git.GitManager;
 import eluajs.project.ProjectJavaClassManager;
 import eluajs.project.ProjectReleaseManager;
 import eluajs.model.ProjectMeta;
@@ -28,6 +34,7 @@ public final class Main {
     private Main() {}
 
     public static void main(String[] args) {
+        eluajs.util.CrashReporter.install();
         if (args.length > 0 && "--self-test".equals(args[0])) {
             selfTest();
             return;
@@ -38,6 +45,7 @@ public final class Main {
         }
         AppPaths.ensureBaseDirs();
         I18n.load();
+        Theme.load();
         Theme.install();
         SwingUtilities.invokeLater(() -> new HubFrame().setVisible(true));
     }
@@ -122,6 +130,17 @@ public final class Main {
             if (searchMatches.stream().noneMatch(m -> m.file().equals(helperClass))) {
                 throw new IllegalStateException("Project search failed");
             }
+            Path replaceFile = meta.rootDir().resolve("replace-test.txt");
+            Files.writeString(replaceFile, "alpha alpha\n");
+            var replaced = ProjectSearch.replaceAll(meta.rootDir(), "alpha", "beta", true);
+            if (replaced.replacements() != 2 || !Files.readString(replaceFile).contains("beta beta")) {
+                throw new IllegalStateException("Project search/replace failed");
+            }
+            Files.deleteIfExists(replaceFile);
+            var detected = ProjectImporter.detect(meta.rootDir());
+            if (!detected.packageName().equals(meta.packageName()) || detected.versionCode() != 1) {
+                throw new IllegalStateException("Android project import detection failed");
+            }
             String safeJava = "package " + meta.packageName() + ".data;\n" +
                     "public class SelfTestRepository {\n" +
                     "  String brace = \"{ not code }\"; // } comment\n" +
@@ -164,6 +183,65 @@ public final class Main {
             if (store.list().stream().noneMatch(x -> x.rootDir().equals(meta.rootDir()))) {
                 throw new IllegalStateException("A damaged project hid valid projects in ProjectStore");
             }
+            for (ProjectTemplate.Template template : ProjectTemplate.Template.values()) {
+                Path templateRoot = temp.resolve("Template-" + template.name());
+                ProjectMeta templateMeta = new ProjectMeta("Template " + template.name(), "1.0", 1,
+                        "com.example.template" + template.ordinal(), null, templateRoot);
+                ProjectTemplate.create(templateMeta, template);
+                if (!ProjectValidator.validate(templateRoot).ok()) {
+                    throw new IllegalStateException("Template validation failed: " + template);
+                }
+                if (template == ProjectTemplate.Template.WEBVIEW
+                        && !Files.isRegularFile(templateRoot.resolve("app/src/main/assets/index.html"))) {
+                    throw new IllegalStateException("WebView template asset missing");
+                }
+            }
+            Path filesRoot = temp.resolve("Files-Test");
+            Files.createDirectories(filesRoot);
+            Path docs = ProjectFileManager.createDirectory(filesRoot, filesRoot, "docs");
+            Path note = ProjectFileManager.createFile(filesRoot, docs, "note.txt");
+            Files.writeString(note, "hello");
+            Path duplicate = ProjectFileManager.duplicate(filesRoot, note);
+            Path renamed = ProjectFileManager.rename(filesRoot, duplicate, "renamed.txt");
+            if (!Files.exists(renamed)) throw new IllegalStateException("File manager rename failed");
+            ProjectFileManager.delete(filesRoot, docs);
+            if (Files.exists(docs)) throw new IllegalStateException("File manager delete failed");
+
+            Path gradleRoot = temp.resolve("Gradle-Test");
+            ProjectTemplate.create(new ProjectMeta("Gradle Test", "1.0", 1, "com.example.gradletest", null, gradleRoot));
+            int nextCode = ProjectGradleManager.incrementVersionCode(gradleRoot);
+            if (nextCode != 2 || !ProjectGradleManager.read(gradleRoot).versionName().equals("1.0")) {
+                throw new IllegalStateException("Gradle version manager failed");
+            }
+            ProjectGradleManager.writePerformance(gradleRoot,
+                    new ProjectGradleManager.Performance("-Xmx2048m", true, true, false, true));
+            String props = Files.readString(gradleRoot.resolve("gradle.properties"));
+            if (!props.contains("org.gradle.configuration-cache=true") || !props.contains("org.gradle.daemon=false")) {
+                throw new IllegalStateException("Gradle performance settings failed");
+            }
+            if (!ProjectLayout.module(gradleRoot).equals("app")) throw new IllegalStateException("Project layout module failed");
+
+            Path artifact = gradleRoot.resolve("app/build/outputs/apk/debug/app-debug.apk");
+            Files.createDirectories(artifact.getParent());
+            Files.writeString(artifact, "fake apk");
+            if (BuildArtifacts.list(gradleRoot).stream().noneMatch(a -> a.file().equals(artifact.toAbsolutePath().normalize()))) {
+                throw new IllegalStateException("Build artifact discovery failed");
+            }
+            Files.deleteIfExists(artifact);
+
+            if (GitManager.available()) {
+                Path gitRoot = temp.resolve("Git-Test");
+                Files.createDirectories(gitRoot);
+                Files.writeString(gitRoot.resolve("readme.txt"), "self-test");
+                if (!GitManager.init(gitRoot).ok() || !GitManager.stageAll(gitRoot).ok()) {
+                    throw new IllegalStateException("Git init/stage failed");
+                }
+                var commit = GitManager.commit(gitRoot, "self-test");
+                if (!commit.ok() || !GitManager.isRepository(gitRoot) || GitManager.changes(gitRoot).size() != 0) {
+                    throw new IllegalStateException("Git commit failed: " + commit.output());
+                }
+            }
+
             System.out.println("eLuajs self-test OK");
             System.out.println("Generated: " + meta.rootDir());
         } catch (Exception e) {

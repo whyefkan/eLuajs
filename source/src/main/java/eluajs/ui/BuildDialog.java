@@ -4,6 +4,9 @@ import eluajs.android.BuildIssueParser;
 import eluajs.android.ToolchainManager;
 import eluajs.android.ReleaseSigningConfig;
 import eluajs.project.ProjectReleaseManager;
+import eluajs.project.Problem;
+import eluajs.project.ProjectLayout;
+import eluajs.project.ProjectGradleManager;
 
 import static eluajs.util.I18n.t;
 
@@ -15,11 +18,13 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.file.*;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public final class BuildDialog extends JDialog {
     private final Path projectRoot;
     private final BiConsumer<Path,Integer> navigator;
+    private final Consumer<Problem> problemSink;
     private final JLabel javaStatus = statusLabel();
     private final JLabel gradleStatus = statusLabel();
     private final JLabel sdkManagerStatus = statusLabel();
@@ -31,7 +36,13 @@ public final class BuildDialog extends JDialog {
     private final JButton build = Ui.button("▶  " + t("Debug APK"), false);
     private final JButton buildAab = Ui.button("◆  " + t("Play Store AAB"), true);
     private final JButton openApk = Ui.button(t("Çıktı Klasörünü Aç"), false);
+    private final JButton adbInstall = Ui.button(t("ADB ile Yükle"), false);
+    private final JButton bumpVersion = Ui.button(t("Sürüm +1"), false);
+    private final JButton artifacts = Ui.button(t("Çıktılar"), false);
+    private final JButton aiFix = Ui.button(t("AI ile Düzelt"), false);
     private final JButton goIssue = Ui.button("↗  " + t("Hata Satırına Git"), false);
+    private Consumer<String> buildFix;
+    private String lastFailureLog = "";
     private final JProgressBar progress = new JProgressBar();
     private Path lastApk;
     private Path lastOutput;
@@ -41,10 +52,15 @@ public final class BuildDialog extends JDialog {
     private static final int MAX_LOG_CHARS = 2_000_000;
 
     public BuildDialog(Frame owner, Path projectRoot, BiConsumer<Path,Integer> navigator) {
+        this(owner, projectRoot, navigator, problem -> { });
+    }
+
+    public BuildDialog(Frame owner, Path projectRoot, BiConsumer<Path,Integer> navigator, Consumer<Problem> problemSink) {
         super(owner, t("eLuajs — Derle / APK / AAB"), true);
         WindowChrome.install(this);
         this.projectRoot = projectRoot;
         this.navigator = navigator;
+        this.problemSink = problemSink == null ? problem -> { } : problemSink;
         setIconImage(Ui.appIcon());
         setSize(920, 760);
         setMinimumSize(new Dimension(760, 640));
@@ -156,9 +172,23 @@ public final class BuildDialog extends JDialog {
         clear.setFont(Theme.font(10, Font.BOLD));
         clear.setBorder(new EmptyBorder(4, 8, 4, 8));
         clear.addActionListener(e -> log.setText(""));
-        logHead.add(clear, BorderLayout.EAST);
+        JPanel logTools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        logTools.setOpaque(false);
+        artifacts.setFont(Theme.font(10, Font.BOLD));
+        artifacts.setBorder(new EmptyBorder(4, 8, 4, 8));
+        artifacts.addActionListener(e -> new ArtifactsDialog(this, projectRoot).setVisible(true));
+        bumpVersion.setFont(Theme.font(10, Font.BOLD));
+        bumpVersion.setBorder(new EmptyBorder(4, 8, 4, 8));
+        bumpVersion.addActionListener(e -> incrementVersion());
+        logTools.add(artifacts);
+        logTools.add(bumpVersion);
+        aiFix.setFont(Theme.font(10, Font.BOLD));
+        aiFix.setBorder(new EmptyBorder(4, 8, 4, 8));
+        logTools.add(aiFix);
+        logTools.add(clear);
+        logHead.add(logTools, BorderLayout.EAST);
         logCard.add(logHead, BorderLayout.NORTH);
-        JScrollPane logScroll = new JScrollPane(log);
+        JScrollPane logScroll = Ui.scroll(log);
         logScroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
         logCard.add(logScroll, BorderLayout.CENTER);
         root.add(logCard, BorderLayout.CENTER);
@@ -184,12 +214,23 @@ public final class BuildDialog extends JDialog {
         build.addActionListener(e -> buildApk());
         buildAab.addActionListener(e -> showAabSigning());
         openApk.addActionListener(e -> openApkFolder());
+        adbInstall.addActionListener(e -> installApk());
+        adbInstall.setEnabled(false);
         goIssue.setEnabled(false);
         goIssue.setForeground(Theme.ACCENT);
         goIssue.addActionListener(e -> { if (lastIssue != null) navigateTo(lastIssue); });
+        aiFix.setEnabled(false);
+        aiFix.setForeground(Theme.BLUE);
+        aiFix.addActionListener(e -> {
+            if (buildFix != null && !lastFailureLog.isBlank()) {
+                dispose();
+                buildFix.accept(lastFailureLog);
+            }
+        });
         actions.add(goIssue);
         actions.add(prepare);
         actions.add(openApk);
+        actions.add(adbInstall);
         actions.add(build);
         actions.add(buildAab);
         footer.add(actions, BorderLayout.SOUTH);
@@ -224,18 +265,62 @@ public final class BuildDialog extends JDialog {
     private void detectExistingApk() {
         String base = projectRoot.getFileName().toString().replaceAll("[^A-Za-z0-9._-]+", "-");
         Path aab = projectRoot.resolve("release").resolve(base + "-release.aab");
-        Path apk = projectRoot.resolve("app/build/outputs/apk/debug/app-debug.apk");
+        Path apk = ProjectLayout.debugApk(projectRoot);
+        if (apk != null && Files.isRegularFile(apk)) lastApk = apk;
         if (Files.isRegularFile(aab)) {
             lastOutput = aab;
             openApk.setEnabled(true);
-        } else if (Files.isRegularFile(apk)) {
-            lastApk = apk;
+        } else if (apk != null && Files.isRegularFile(apk)) {
             lastOutput = apk;
             openApk.setEnabled(true);
         } else {
             lastOutput = null;
             openApk.setEnabled(false);
         }
+        adbInstall.setEnabled(lastApk != null && Files.isRegularFile(lastApk));
+    }
+
+    private void incrementVersion() {
+        try {
+            int next = ProjectGradleManager.incrementVersionCode(projectRoot);
+            appendLog("versionCode → " + next);
+            JOptionPane.showMessageDialog(this, t("Yeni versionCode: %d", next),
+                    t("Sürüm kodu artırıldı"), JOptionPane.INFORMATION_MESSAGE);
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Sürüm kodu artırılamadı"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void installApk() {
+        if (lastApk == null || !Files.isRegularFile(lastApk)) {
+            detectExistingApk();
+            if (lastApk == null) {
+                JOptionPane.showMessageDialog(this, t("Önce bir debug APK derleyin."),
+                        t("APK bulunamadı"), JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+        }
+        adbInstall.setEnabled(false);
+        appendLog("\n--- " + t("ADB ile kurulum") + " ---");
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            @Override protected Void doInBackground() throws Exception {
+                ToolchainManager.installApk(lastApk, BuildDialog.this::appendLog);
+                return null;
+            }
+            @Override protected void done() {
+                adbInstall.setEnabled(true);
+                try {
+                    get();
+                    JOptionPane.showMessageDialog(BuildDialog.this, t("APK cihaza yüklendi."),
+                            t("ADB"), JOptionPane.INFORMATION_MESSAGE);
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+                    appendLog(t("ADB HATASI: ") + cause.getMessage());
+                    JOptionPane.showMessageDialog(BuildDialog.this, cause.getMessage(), t("ADB hatası"), JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
     }
 
     private void prepareSdk() {
@@ -314,7 +399,14 @@ public final class BuildDialog extends JDialog {
         }
     }
 
+    public void setBuildFix(Consumer<String> buildFix) {
+        this.buildFix = buildFix;
+        aiFix.setEnabled(buildFix != null && !lastFailureLog.isBlank());
+    }
+
     private <T> void runTask(String title, Task<T> task) {
+        lastFailureLog = "";
+        aiFix.setEnabled(false);
         prepare.setEnabled(false);
         build.setEnabled(false);
         buildAab.setEnabled(false);
@@ -335,6 +427,7 @@ public final class BuildDialog extends JDialog {
                         lastOutput = p;
                         if (p.toString().endsWith(".apk")) lastApk = p;
                         openApk.setEnabled(true);
+                        adbInstall.setEnabled(lastApk != null);
                         boolean aab = p.toString().toLowerCase().endsWith(".aab");
                         String message = aab
                                 ? t("İmzalı release AAB başarıyla oluşturuldu:\n%s\n\nBu dosya Google Play Console'a yüklenmek için hazırlanmıştır.", p)
@@ -347,6 +440,9 @@ public final class BuildDialog extends JDialog {
                     appendLog(t("HATA: ") + cause.getMessage());
                     refreshStatuses();
                     detectExistingApk();
+                    flushLog();
+                    lastFailureLog = logTail(14_000);
+                    aiFix.setEnabled(buildFix != null && !lastFailureLog.isBlank());
                     String suffix = lastIssue == null ? "" : t("\n\nKaynak konumu bulundu. 'Hata Satırına Git' düğmesini kullanabilirsiniz.");
                     JOptionPane.showMessageDialog(BuildDialog.this,
                             friendlyError(cause) + suffix, t("İşlem başarısız"), JOptionPane.ERROR_MESSAGE);
@@ -354,6 +450,11 @@ public final class BuildDialog extends JDialog {
             }
         };
         worker.execute();
+    }
+
+    private String logTail(int max) {
+        String text = log.getText();
+        return text.length() <= max ? text : text.substring(text.length() - max);
     }
 
     private String friendlyError(Throwable cause) {
@@ -373,12 +474,15 @@ public final class BuildDialog extends JDialog {
         StringBuilder batch = new StringBuilder();
         String line;
         while ((line = pendingLog.poll()) != null) {
-            batch.append(line).append('\n');
-            BuildIssueParser.parse(line).ifPresent(issue -> {
+            final String logLine = line;
+            batch.append(logLine).append('\n');
+            BuildIssueParser.parse(logLine).ifPresent(issue -> {
                 if (Files.isRegularFile(issue.file())) {
                     lastIssue = issue;
                     goIssue.setEnabled(navigator != null);
                     goIssue.setToolTipText(issue.file() + ":" + issue.line());
+                    Problem.Severity severity = isErrorLine(logLine) ? Problem.Severity.ERROR : Problem.Severity.WARNING;
+                    problemSink.accept(new Problem(issue.file(), issue.line(), trimBuildLine(logLine), severity));
                 }
             });
         }
@@ -395,6 +499,17 @@ public final class BuildDialog extends JDialog {
         flushLog();
         logFlushTimer.stop();
         super.dispose();
+    }
+
+    private static boolean isErrorLine(String line) {
+        String lower = line == null ? "" : line.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("error:") || lower.contains("failed") || lower.startsWith("e:")
+                || lower.contains("exception") || lower.contains("hata:");
+    }
+
+    private static String trimBuildLine(String line) {
+        String text = line == null ? "" : line.strip();
+        return text.length() > 300 ? text.substring(0, 297) + "..." : text;
     }
 
     private void navigateTo(BuildIssueParser.Issue issue) {

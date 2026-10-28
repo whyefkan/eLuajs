@@ -36,6 +36,10 @@ public final class UpdateManager {
     private UpdateManager() {}
 
     public static Release check() throws Exception {
+        return checkStable();
+    }
+
+    private static Release checkStable() throws Exception {
         String cleaned = OFFICIAL_REPO;
         if (!cleaned.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
             throw new IOException(I18n.t("Official repository is invalid"));
@@ -53,8 +57,14 @@ public final class UpdateManager {
         if (status == 403) throw new IOException(I18n.t("GitHub API rate limit reached. Try again later."));
         if (status / 100 != 2) throw new IOException(I18n.t("GitHub returned HTTP %d", status));
         Object root = Json.parse(response.body());
+        Release release = parseRelease(root);
+        if (release == null) throw new IOException(I18n.t("Latest release has no tag"));
+        return release;
+    }
+
+    private static Release parseRelease(Object root) {
         String tag = Json.stringAt(root, "tag_name");
-        if (tag == null || tag.isBlank()) throw new IOException(I18n.t("Latest release has no tag"));
+        if (tag == null || tag.isBlank()) return null;
         String version = normalizeVersion(tag);
         String notes = Json.stringAt(root, "body");
         if (notes == null) notes = "";
@@ -220,12 +230,37 @@ public final class UpdateManager {
     }
 
     private static int compareVersions(String a, String b) {
-        int[] x = versionParts(a);
-        int[] y = versionParts(b);
+        String left = normalizeVersion(a);
+        String right = normalizeVersion(b);
+        int leftDash = left.indexOf('-');
+        int rightDash = right.indexOf('-');
+        String leftCore = leftDash < 0 ? left : left.substring(0, leftDash);
+        String rightCore = rightDash < 0 ? right : right.substring(0, rightDash);
+        String leftPre = leftDash < 0 ? "" : left.substring(leftDash + 1);
+        String rightPre = rightDash < 0 ? "" : right.substring(rightDash + 1);
+        int[] x = versionParts(leftCore);
+        int[] y = versionParts(rightCore);
         for (int i = 0; i < Math.max(x.length, y.length); i++) {
             int xv = i < x.length ? x[i] : 0;
             int yv = i < y.length ? y[i] : 0;
             if (xv != yv) return Integer.compare(xv, yv);
+        }
+        if (leftPre.isEmpty() && !rightPre.isEmpty()) return 1;
+        if (!leftPre.isEmpty() && rightPre.isEmpty()) return -1;
+        if (leftPre.isEmpty()) return 0;
+        String[] lp = leftPre.split("\\.");
+        String[] rp = rightPre.split("\\.");
+        for (int i = 0; i < Math.max(lp.length, rp.length); i++) {
+            String lv = i < lp.length ? lp[i] : "0";
+            String rv = i < rp.length ? rp[i] : "0";
+            try {
+                int ln = Integer.parseInt(lv);
+                int rn = Integer.parseInt(rv);
+                if (ln != rn) return Integer.compare(ln, rn);
+            } catch (NumberFormatException ex) {
+                int cmp = lv.compareTo(rv);
+                if (cmp != 0) return Integer.compare(cmp, 0);
+            }
         }
         return 0;
     }

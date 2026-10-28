@@ -17,6 +17,8 @@ public final class NewProjectDialog extends JDialog {
     private final JSpinner versionCode = new JSpinner(new SpinnerNumberModel(1, 1, Integer.MAX_VALUE, 1));
     private final JTextField packageName = Ui.field();
     private final JTextField logo = Ui.field();
+    private final JComboBox<ProjectTemplate.Template> template = new JComboBox<>(ProjectTemplate.Template.values());
+    private final JLabel templateDescription = Ui.label("", 12, Font.PLAIN, Theme.MUTED);
     private final Path projectsRoot;
     private ProjectMeta created;
 
@@ -24,8 +26,8 @@ public final class NewProjectDialog extends JDialog {
         super(owner, t("Yeni eLuajs Projesi"), true);
         this.projectsRoot = projectsRoot;
         setIconImage(Ui.appIcon());
-        setSize(680, 640);
-        setMinimumSize(new Dimension(620, 600));
+        setSize(700, 720);
+        setMinimumSize(new Dimension(620, 680));
         setResizable(true);
         setLocationRelativeTo(owner);
         getContentPane().setBackground(Theme.BG);
@@ -56,6 +58,26 @@ public final class NewProjectDialog extends JDialog {
         addRow(root, t("Sürüm kodu"), versionCode);
         addRow(root, t("Paket adı"), packageName);
 
+        Ui.styleCombo(template);
+        template.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                    boolean selected, boolean focus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, false);
+                if (value instanceof ProjectTemplate.Template item) label.setText(templateLabel(item));
+                label.setBackground(selected ? Theme.SELECTION : Theme.PANEL_2);
+                label.setForeground(Theme.TEXT);
+                label.setBorder(new EmptyBorder(4, 8, 4, 8));
+                return label;
+            }
+        });
+        JPanel templateBox = new JPanel(new BorderLayout(0, 6));
+        templateBox.setOpaque(false);
+        templateBox.add(template, BorderLayout.NORTH);
+        templateBox.add(templateDescription, BorderLayout.SOUTH);
+        template.addActionListener(e -> templateDescription.setText(templateDescription((ProjectTemplate.Template) template.getSelectedItem())));
+        templateDescription.setText(templateDescription(ProjectTemplate.Template.EMPTY));
+        addRow(root, t("Şablon"), templateBox, 92);
+
         JPanel logoLine = new JPanel(new BorderLayout(10, 0));
         logoLine.setOpaque(false);
         logoLine.add(logo, BorderLayout.CENTER);
@@ -85,11 +107,36 @@ public final class NewProjectDialog extends JDialog {
     }
 
     private void addRow(JPanel root, String name, JComponent comp) {
+        addRow(root, name, comp, 70);
+    }
+
+    private void addRow(JPanel root, String name, JComponent comp, int maxHeight) {
         JPanel row = Ui.formRow(name, comp);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, maxHeight));
         root.add(row);
         root.add(Box.createVerticalStrut(12));
+    }
+
+    private String templateLabel(ProjectTemplate.Template template) {
+        return switch (template) {
+            case LOGIN -> t("Giriş ekranı");
+            case WEBVIEW -> t("WebView uygulaması");
+            case NOTES -> t("Notlar");
+            case MATERIAL -> t("Panel / Kartlar");
+            default -> t("Boş uygulama");
+        };
+    }
+
+    private String templateDescription(ProjectTemplate.Template template) {
+        if (template == null) return "";
+        return switch (template) {
+            case LOGIN -> t("E-posta ve parola alanları olan giriş ekranı.");
+            case WEBVIEW -> t("Çevrimdışı HTML ile hazır WebView demosu.");
+            case NOTES -> t("Kalıcı not / yapılacaklar ekranı.");
+            case MATERIAL -> t("Yuvarlatılmış kartlar ve anahtar içeren panel.");
+            default -> t("Uygulama adınızla temiz bir başlangıç ekranı.");
+        };
     }
 
     private void chooseLogo() {
@@ -109,7 +156,7 @@ public final class NewProjectDialog extends JDialog {
             while (target.toFile().exists()) target = projectsRoot.resolve(folder + "-" + suffix++);
             Path logoPath = logo.getText().isBlank() ? null : Path.of(logo.getText());
             ProjectMeta meta = new ProjectMeta(name, versionName.getText().trim(), ((Number)versionCode.getValue()).intValue(), packageName.getText().trim(), logoPath, target);
-            ProjectTemplate.create(meta);
+            ProjectTemplate.create(meta, (ProjectTemplate.Template) template.getSelectedItem());
             created = new ProjectMeta(meta.appName(), meta.versionName(), meta.versionCode(), meta.packageName(), null, meta.rootDir());
             dispose();
         } catch (Exception ex) {

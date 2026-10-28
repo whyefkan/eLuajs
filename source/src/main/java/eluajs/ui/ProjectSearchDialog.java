@@ -79,7 +79,7 @@ public final class ProjectSearchDialog extends JDialog {
         results.addKeyListener(new KeyAdapter() {
             @Override public void keyPressed(KeyEvent e) { if (e.getKeyCode() == KeyEvent.VK_ENTER) { e.consume(); openSelected(); } }
         });
-        JScrollPane scroll = new JScrollPane(results);
+        JScrollPane scroll = Ui.scroll(results);
         scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         root.add(scroll, BorderLayout.CENTER);
 

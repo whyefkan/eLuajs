@@ -4,39 +4,141 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.plaf.basic.BasicScrollBarUI;
+import javax.swing.plaf.basic.BasicTabbedPaneUI;
 import java.awt.*;
 import java.awt.geom.Path2D;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Properties;
 
 public final class Theme {
-    public static final Color BG = new Color(9, 13, 19);
-    public static final Color SIDEBAR = new Color(7, 11, 16);
-    public static final Color TITLE_BAR = new Color(7, 11, 16);
-    public static final Color ACTIVITY_BAR = new Color(5, 8, 12);
-    public static final Color PANEL = new Color(15, 21, 29);
-    public static final Color PANEL_2 = new Color(20, 28, 38);
-    public static final Color PANEL_3 = new Color(27, 37, 49);
-    public static final Color PANEL_HOVER = new Color(31, 43, 56);
-    public static final Color EDITOR = new Color(11, 16, 23);
-    public static final Color CONSOLE = new Color(7, 11, 16);
-    public static final Color TAB_BAR = new Color(9, 13, 19);
-    public static final Color TAB_ACTIVE = new Color(11, 16, 23);
-    public static final Color TAB_INACTIVE = new Color(15, 21, 29);
-    public static final Color BORDER = new Color(42, 55, 70);
-    public static final Color BORDER_SOFT = new Color(32, 43, 56);
-    public static final Color TEXT = new Color(241, 246, 251);
-    public static final Color TEXT_SOFT = new Color(199, 211, 224);
-    public static final Color MUTED = new Color(132, 149, 167);
-    public static final Color ACCENT = new Color(55, 214, 164);
-    public static final Color ACCENT_HOVER = new Color(79, 229, 183);
-    public static final Color ACCENT_DARK = new Color(17, 73, 57);
-    public static final Color STATUS_BG = new Color(28, 158, 125);
-    public static final Color STATUS_TEXT = new Color(4, 31, 24);
-    public static final Color BLUE = new Color(86, 156, 214);
-    public static final Color DANGER = new Color(248, 113, 113);
-    public static final Color WARNING = new Color(251, 191, 36);
-    public static final Color SELECTION = new Color(34, 75, 65);
+    public static Color BG = new Color(9, 13, 19);
+    public static Color SIDEBAR = new Color(7, 11, 16);
+    public static Color TITLE_BAR = new Color(7, 11, 16);
+    public static Color ACTIVITY_BAR = new Color(5, 8, 12);
+    public static Color PANEL = new Color(15, 21, 29);
+    public static Color PANEL_2 = new Color(20, 28, 38);
+    public static Color PANEL_3 = new Color(27, 37, 49);
+    public static Color PANEL_HOVER = new Color(31, 43, 56);
+    public static Color EDITOR = new Color(11, 16, 23);
+    public static Color CONSOLE = new Color(7, 11, 16);
+    public static Color TAB_BAR = new Color(9, 13, 19);
+    public static Color TAB_ACTIVE = new Color(11, 16, 23);
+    public static Color TAB_INACTIVE = new Color(15, 21, 29);
+    public static Color BORDER = new Color(42, 55, 70);
+    public static Color BORDER_SOFT = new Color(32, 43, 56);
+    public static Color TEXT = new Color(241, 246, 251);
+    public static Color TEXT_SOFT = new Color(199, 211, 224);
+    public static Color MUTED = new Color(132, 149, 167);
+    public static Color ACCENT = new Color(55, 214, 164);
+    public static Color ACCENT_HOVER = new Color(79, 229, 183);
+    public static Color ACCENT_DARK = new Color(17, 73, 57);
+    public static Color STATUS_BG = new Color(28, 158, 125);
+    public static Color STATUS_TEXT = new Color(4, 31, 24);
+    public static Color BLUE = new Color(86, 156, 214);
+    public static Color DANGER = new Color(248, 113, 113);
+    public static Color WARNING = new Color(251, 191, 36);
+    public static Color SELECTION = new Color(34, 75, 65);
+
+    private static boolean light;
 
     private Theme() {}
+
+    public static boolean isLight() { return light; }
+
+    public static void load() {
+        Properties p = new Properties();
+        Path file = settingsFile();
+        if (Files.isRegularFile(file)) {
+            try (InputStream in = Files.newInputStream(file)) { p.load(in); }
+            catch (IOException ignored) { }
+        }
+        light = "light".equalsIgnoreCase(p.getProperty("theme", "dark").trim());
+        applyPalette();
+    }
+
+    public static void setLight(boolean value) {
+        light = value;
+        applyPalette();
+        Properties p = new Properties();
+        Path file = settingsFile();
+        if (Files.isRegularFile(file)) {
+            try (InputStream in = Files.newInputStream(file)) { p.load(in); }
+            catch (IOException ignored) { }
+        }
+        p.setProperty("theme", value ? "light" : "dark");
+        try {
+            Files.createDirectories(file.getParent());
+            try (OutputStream out = Files.newOutputStream(file)) { p.store(out, "eLuajs settings"); }
+        } catch (IOException ignored) { }
+    }
+
+    private static Path settingsFile() {
+        return eluajs.util.AppPaths.config().resolve("settings.properties");
+    }
+
+    private static void applyPalette() {
+        if (!light) {
+            BG = new Color(9, 13, 19);
+            SIDEBAR = new Color(7, 11, 16);
+            TITLE_BAR = new Color(7, 11, 16);
+            ACTIVITY_BAR = new Color(5, 8, 12);
+            PANEL = new Color(15, 21, 29);
+            PANEL_2 = new Color(20, 28, 38);
+            PANEL_3 = new Color(27, 37, 49);
+            PANEL_HOVER = new Color(31, 43, 56);
+            EDITOR = new Color(11, 16, 23);
+            CONSOLE = new Color(7, 11, 16);
+            TAB_BAR = new Color(9, 13, 19);
+            TAB_ACTIVE = new Color(11, 16, 23);
+            TAB_INACTIVE = new Color(15, 21, 29);
+            BORDER = new Color(42, 55, 70);
+            BORDER_SOFT = new Color(32, 43, 56);
+            TEXT = new Color(241, 246, 251);
+            TEXT_SOFT = new Color(199, 211, 224);
+            MUTED = new Color(132, 149, 167);
+            ACCENT = new Color(55, 214, 164);
+            ACCENT_HOVER = new Color(79, 229, 183);
+            ACCENT_DARK = new Color(17, 73, 57);
+            STATUS_BG = new Color(28, 158, 125);
+            STATUS_TEXT = new Color(4, 31, 24);
+            BLUE = new Color(86, 156, 214);
+            DANGER = new Color(248, 113, 113);
+            WARNING = new Color(251, 191, 36);
+            SELECTION = new Color(34, 75, 65);
+        } else {
+            BG = new Color(245, 247, 250);
+            SIDEBAR = new Color(238, 242, 247);
+            TITLE_BAR = new Color(232, 237, 243);
+            ACTIVITY_BAR = new Color(223, 230, 238);
+            PANEL = new Color(255, 255, 255);
+            PANEL_2 = new Color(240, 243, 247);
+            PANEL_3 = new Color(230, 235, 241);
+            PANEL_HOVER = new Color(221, 229, 238);
+            EDITOR = new Color(255, 255, 255);
+            CONSOLE = new Color(247, 249, 251);
+            TAB_BAR = new Color(238, 242, 247);
+            TAB_ACTIVE = new Color(255, 255, 255);
+            TAB_INACTIVE = new Color(231, 237, 244);
+            BORDER = new Color(199, 210, 223);
+            BORDER_SOFT = new Color(219, 227, 236);
+            TEXT = new Color(23, 33, 43);
+            TEXT_SOFT = new Color(52, 73, 94);
+            MUTED = new Color(107, 124, 147);
+            ACCENT = new Color(15, 157, 118);
+            ACCENT_HOVER = new Color(11, 138, 104);
+            ACCENT_DARK = new Color(217, 245, 236);
+            STATUS_BG = new Color(15, 157, 118);
+            STATUS_TEXT = new Color(255, 255, 255);
+            BLUE = new Color(37, 99, 235);
+            DANGER = new Color(220, 38, 38);
+            WARNING = new Color(180, 83, 9);
+            SELECTION = new Color(205, 238, 227);
+        }
+    }
 
     public static void install() {
         try { UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName()); } catch (Exception ignored) {}
@@ -104,7 +206,7 @@ public final class Theme {
         UIManager.put("Viewport.background", PANEL);
         UIManager.put("ScrollBar.background", PANEL);
         UIManager.put("ScrollBarUI", FlatScrollBarUI.class.getName());
-        UIManager.put("ScrollBar.width", 10);
+        UIManager.put("ScrollBar.width", 9);
         UIManager.put("ComboBoxUI", FlatComboBoxUI.class.getName());
         UIManager.put("Separator.foreground", BORDER_SOFT);
         UIManager.put("ToolTip.background", PANEL_3);
@@ -159,11 +261,63 @@ public final class Theme {
         }
     }
 
-    /** Flat 10px scrollbar so the IDE keeps a VS Code feel without extra deps. */
+    /** Flat, borderless editor tabs with a clear active underline. */
+    public static final class FlatTabbedPaneUI extends BasicTabbedPaneUI {
+        @Override protected int calculateTabHeight(int placement, int index, int fontHeight) {
+            return Math.max(36, super.calculateTabHeight(placement, index, fontHeight) + 6);
+        }
+
+        @Override protected int calculateTabWidth(int placement, int index, FontMetrics metrics) {
+            return Math.max(136, super.calculateTabWidth(placement, index, metrics) + 22);
+        }
+
+        @Override protected Insets getTabInsets(int placement, int index) {
+            return new Insets(7, 12, 7, 10);
+        }
+
+        @Override protected Insets getSelectedTabPadInsets(int placement) {
+            return new Insets(0, 0, 0, 0);
+        }
+
+        @Override protected void paintTabArea(Graphics g, int placement, int selectedIndex) {
+            g.setColor(TAB_BAR);
+            g.fillRect(0, 0, tabPane.getWidth(),
+                    calculateTabAreaHeight(placement, runCount, maxTabHeight));
+            super.paintTabArea(g, placement, selectedIndex);
+        }
+
+        @Override protected void paintTabBackground(Graphics g, int placement, int index,
+                int x, int y, int w, int h, boolean selected) {
+            g.setColor(selected ? TAB_ACTIVE : TAB_BAR);
+            g.fillRect(x, y, w, h);
+        }
+
+        @Override protected void paintTabBorder(Graphics g, int placement, int index,
+                int x, int y, int w, int h, boolean selected) {
+            if (selected) {
+                g.setColor(ACCENT);
+                g.fillRect(x, y, w, 2);
+            }
+            g.setColor(BORDER_SOFT);
+            g.drawLine(x + w - 1, y + 8, x + w - 1, y + h - 8);
+        }
+
+        @Override protected void paintContentBorder(Graphics g, int placement, int selectedIndex) {
+            int area = calculateTabAreaHeight(placement, runCount, maxTabHeight);
+            g.setColor(BORDER_SOFT);
+            g.drawLine(0, area - 1, tabPane.getWidth(), area - 1);
+        }
+
+        @Override protected void paintFocusIndicator(Graphics g, int placement, Rectangle[] rects,
+                int index, Rectangle icon, Rectangle text, boolean selected) { }
+    }
+
+    /** Flat, theme-aware scrollbar so the IDE keeps a VS Code feel without extra deps. */
     public static final class FlatScrollBarUI extends BasicScrollBarUI {
-        @Override protected void configureScrollBarColors() {
-            thumbColor = new Color(71, 85, 102);
-            trackColor = new Color(10, 15, 21);
+        @Override protected void installDefaults() {
+            super.installDefaults();
+            scrollbar.setOpaque(false);
+            scrollbar.setUnitIncrement(18);
         }
 
         @Override protected JButton createDecreaseButton(int orientation) { return zeroButton(); }
@@ -180,23 +334,24 @@ public final class Theme {
         }
 
         @Override protected void paintTrack(Graphics g, JComponent c, Rectangle r) {
-            g.setColor(trackColor);
-            g.fillRect(r.x, r.y, r.width, r.height);
         }
 
         @Override protected void paintThumb(Graphics g, JComponent c, Rectangle r) {
             if (r.isEmpty() || !scrollbar.isEnabled()) return;
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(isThumbRollover() || isDragging ? new Color(108, 124, 143) : thumbColor);
+            Color normal = Theme.isLight() ? new Color(151, 169, 188) : new Color(71, 85, 102);
+            Color hover = Theme.isLight() ? new Color(105, 131, 156) : new Color(108, 124, 143);
+            g2.setColor(isThumbRollover() || scrollbar.getValueIsAdjusting() ? hover : normal);
             int pad = scrollbar.getOrientation() == JScrollBar.VERTICAL ? 2 : 2;
-            g2.fillRoundRect(r.x + pad, r.y + pad, r.width - pad * 2, r.height - pad * 2, 8, 8);
+            g2.fillRoundRect(r.x + pad, r.y + pad, Math.max(3, r.width - pad * 2),
+                    Math.max(3, r.height - pad * 2), 8, 8);
             g2.dispose();
         }
 
         @Override public Dimension getPreferredSize(JComponent c) {
             return scrollbar.getOrientation() == JScrollBar.VERTICAL
-                    ? new Dimension(10, 48) : new Dimension(48, 10);
+                    ? new Dimension(9, 48) : new Dimension(48, 9);
         }
     }
 }

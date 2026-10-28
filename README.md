@@ -79,14 +79,17 @@ All links below always point to the **latest release**.
 
 ## Features
 
-- **VS Code-style shell** — activity bar, explorer sidebar, editor tabs, output panel, custom window controls and a dark theme. Build and signing windows use the same chrome.
-- **Editor built for coding** — syntax highlighting, line numbers, `Ctrl+Space` completion, `Ctrl+Shift+F` project search and automatic imports.
-- **Project tools** — new activities, Java classes, assets, Gradle libraries, permissions and AndroidManifest editing.
-- **One-click output** — debug APK or signed Play Store AAB, with build logs and click-to-open error locations.
-- **AI providers** — OpenAI, Claude (Anthropic), Google Gemini, Groq, DeepSeek, OpenRouter, River AI and any OpenAI-compatible endpoint.
-- **English by default** — Turkish is available in Settings.
-- **Auto-update** — checks the official GitHub repository on startup and can replace `app/eLuajs.jar` and restart.
-- **Keyboard-friendly** — `Ctrl+S` save, `Ctrl+Shift+F` search, `Ctrl+Shift+N` new class, `Ctrl+Alt+A` AI panel, `Ctrl+Space` completion, **Enter** send chat, **Shift+Enter** new line.
+- **VS Code-style shell** — activity bar, explorer sidebar, multi-file tabs, split view, output/problems/search panel, custom window controls, dark/light themes and theme-aware scrollbars.
+- **Editor built for coding** — syntax highlighting, line numbers, undo/redo (`Ctrl+Z` / `Ctrl+Y`), auto-indent, bracket matching, editor find/replace, zoom, block folding, `Ctrl+Space` completion, `Ctrl+Shift+F` project search and automatic imports.
+- **Project tools** — import existing Android projects, starter templates, file/folder/layout operations, new activities, Java classes, assets, Gradle libraries, permissions and AndroidManifest editing.
+- **Project settings** — compile/min/target SDK, versionCode/versionName and Gradle performance options.
+- **One-click output** — debug APK or signed Play Store AAB, artifact manager, ADB install, versionCode increment, with build logs and click-to-open error locations.
+- **Git integration** — status, diff, stage, commit, pull/push, branches and checkout.
+- **AI providers** — latest OpenAI GPT-6 family, Claude Fable/Opus/Sonnet/Haiku 5.x, Gemini 4/3.x, Groq, DeepSeek, OpenRouter, local Ollama, River AI and any OpenAI-compatible endpoint.
+- **AI 2.0** — diff approval, one-click build fix, local Ollama and optional token budget.
+- **Six languages** — English, Turkish, German, French, Spanish and Russian.
+- **Reliability** — crash log, stable-only auto-update and recovery copies for file edits.
+- **Keyboard-friendly** — `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` redo, `Ctrl+Shift+F` search, `Ctrl+Shift+N` new class, `Ctrl+Alt+A` AI panel, `Ctrl+\` split view, `Ctrl+Space` completion, **Enter** send chat, **Shift+Enter** new line.
 
 ## Quick start
 
@@ -103,11 +106,11 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - Choose provider and model from the dropdowns below the composer.
 - API keys are stored locally in `~/.eluajs/ai.properties` with `600` permissions.
 - The assistant receives the project file tree and requests only the files it needs (`READ:`), keeping token use economical.
-- It edits project files directly with `WRITE:`/`DELETE:` commands, reloads the open editor, and reports what changed instead of dumping code into the chat.
+- It proposes `WRITE:`/`DELETE:` changes, shows a diff for approval, then reloads the open editor and reports what changed instead of dumping code into the chat.
 - If a provider returns a code block without a write command, the app applies it to the open file for change requests.
 - **Undo AI edits** restores the last AI modification.
 - Conversations are saved under `~/.eluajs/ai-chats` and restored per project. The history button lists previous chats.
-- Token usage and approximate cost are shown below the composer.
+- Token usage and approximate cost are shown below the composer. The token budget is optional and off by default; local Ollama needs no API key.
 
 ## Updates
 

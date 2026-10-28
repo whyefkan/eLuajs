@@ -63,7 +63,7 @@ public final class AiPanel extends JPanel {
             - Do not modify unrelated files. Do not invent APIs.
             - After editing, reply with a short summary of what changed. Do not paste the code again.
             - If the user asks a question only, do not use WRITE or DELETE.
-            - The app applies your changes directly; the user does not need to click any buttons.
+            - The app shows your changes for user approval before applying them.
             """;
 
     private static final int MAX_FILE_ROUNDS = 3;
@@ -74,7 +74,7 @@ public final class AiPanel extends JPanel {
     private static final int AI_TEXT_WIDTH = 320;
     private static final int USER_TEXT_WIDTH = 260;
 
-    private final SyntaxEditorPane editor;
+    private final Supplier<SyntaxEditorPane> editorProvider;
     private final Supplier<String> fileLabel;
     private final Supplier<Path> currentFile;
     private final Path projectRoot;
@@ -110,8 +110,13 @@ public final class AiPanel extends JPanel {
 
     public AiPanel(SyntaxEditorPane editor, Supplier<String> fileLabel, Supplier<Path> currentFile,
                    Path projectRoot, Runnable onClose, Runnable beforeSend, Runnable afterFilesChanged) {
+        this(() -> editor, fileLabel, currentFile, projectRoot, onClose, beforeSend, afterFilesChanged);
+    }
+
+    public AiPanel(Supplier<SyntaxEditorPane> editorProvider, Supplier<String> fileLabel, Supplier<Path> currentFile,
+                   Path projectRoot, Runnable onClose, Runnable beforeSend, Runnable afterFilesChanged) {
         super(new BorderLayout());
-        this.editor = editor;
+        this.editorProvider = editorProvider;
         this.fileLabel = fileLabel;
         this.currentFile = currentFile;
         this.projectRoot = projectRoot;
@@ -125,7 +130,7 @@ public final class AiPanel extends JPanel {
         conversation.setLayout(new BoxLayout(conversation, BoxLayout.Y_AXIS));
         conversation.setBackground(Theme.CONSOLE);
         conversation.setBorder(new EmptyBorder(10, 12, 10, 12));
-        conversationScroll = new JScrollPane(conversation);
+        conversationScroll = Ui.scroll(conversation);
         conversationScroll.setBorder(null);
         conversationScroll.getViewport().setBackground(Theme.CONSOLE);
         conversationScroll.getVerticalScrollBar().setUnitIncrement(18);
@@ -188,7 +193,7 @@ public final class AiPanel extends JPanel {
         prompt.setWrapStyleWord(true);
         prompt.setBorder(new EmptyBorder(8, 10, 8, 10));
         prompt.setToolTipText(t("Enter: send  •  Shift+Enter: new line"));
-        JScrollPane scroll = new JScrollPane(prompt);
+        JScrollPane scroll = Ui.scroll(prompt);
         scroll.setBorder(null);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
@@ -279,6 +284,14 @@ public final class AiPanel extends JPanel {
         send.setEnabled(!busy && !prompt.getText().trim().isEmpty());
     }
 
+    public void fixBuild(String buildLog) {
+        if (buildLog == null) buildLog = "";
+        String text = "The Android build failed. Diagnose the cause, inspect the relevant files, and fix the project. "
+                + "Return the required WRITE commands and a short explanation.\n\nBUILD LOG:\n" + limit(buildLog, 14_000);
+        prompt.setText(text);
+        send();
+    }
+
     public void focusPrompt() {
         SwingUtilities.invokeLater(prompt::requestFocusInWindow);
     }
@@ -338,7 +351,7 @@ public final class AiPanel extends JPanel {
     private void updateKeyStatus() {
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) provider = config.provider();
-        boolean ready = config.hasKey(provider);
+        boolean ready = !provider.requiresKey() || config.hasKey(provider);
         status.setText(ready ? t("Ready.") : t("No API key configured. Open Settings and add one."));
         status.setForeground(ready ? Theme.ACCENT : Theme.WARNING);
     }
@@ -489,7 +502,7 @@ public final class AiPanel extends JPanel {
                 panel.add(Box.createVerticalStrut(2));
             }
         }
-        JScrollPane scroll = new JScrollPane(panel);
+        JScrollPane scroll = Ui.scroll(panel);
         scroll.setBorder(null);
         scroll.getViewport().setBackground(Theme.PANEL);
         int popupWidth = 320;
@@ -509,7 +522,7 @@ public final class AiPanel extends JPanel {
         config.setProvider(provider);
         config.setModel(provider, model == null ? "" : String.valueOf(model));
         config.save();
-        if (!config.hasKey(provider)) {
+        if (provider.requiresKey() && !config.hasKey(provider)) {
             chatCards.show(chatArea, "chat");
             addBubble(false, t("No API key configured. Open Settings and add one."), true);
             status.setText(t("No API key configured. Open Settings and add one."));
@@ -615,6 +628,9 @@ public final class AiPanel extends JPanel {
     private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, boolean allowFallback, Consumer<ProgressEvent> progress) throws Exception {
         List<AiMessage> convo = new ArrayList<>(initial);
         int totalRead = 0;
+        int fileBudget = config.tokenBudgetEnabled()
+                ? (int) Math.min(MAX_TOTAL_FILE_CHARS, Math.max(4_000L, (long) config.tokenBudget() * 3L))
+                : MAX_TOTAL_FILE_CHARS;
         long promptTokens = 0, completionTokens = 0, totalTokens = 0;
         double cost = 0;
         AiProvider usedProvider = config.provider();
@@ -651,11 +667,11 @@ public final class AiPanel extends JPanel {
                 return new LoopResult(last.text(), promptTokens, completionTokens, totalTokens, cost, false);
             }
             convo.add(AiMessage.assistant(answer));
-            String contents = readRequestedFiles(requests, MAX_TOTAL_FILE_CHARS - totalRead);
+            String contents = readRequestedFiles(requests, fileBudget - totalRead);
             totalRead += contents.length();
             progress.accept(new ProgressEvent(EventKind.READ, requests));
             convo.add(AiMessage.user("REQUESTED FILE CONTENTS:\n" + contents));
-            if (totalRead >= MAX_TOTAL_FILE_CHARS) {
+            if (totalRead >= fileBudget) {
                 convo.add(AiMessage.user("FILE READ LIMIT REACHED. Give the final answer now."));
                 AiResult last = AiClient.completeDetailed(config, system, convo);
                 promptTokens += last.promptTokens();
@@ -678,7 +694,8 @@ public final class AiPanel extends JPanel {
             ApplyResult applied = applyEdits(writes, deletes, progress);
             String summary = stripAllCodeBlocks(stripEditCommands(answer)).trim();
             if (applied.changed() == 0) {
-                if (!applied.errors().isEmpty()) summary = t("AI could not apply changes: %s", String.join("; ", applied.errors()));
+                if (applied.errors().contains(t("Changes rejected."))) summary = t("Changes rejected.");
+                else if (!applied.errors().isEmpty()) summary = t("AI could not apply changes: %s", String.join("; ", applied.errors()));
                 else if (summary.isBlank()) summary = t("No files were changed.");
             } else if (summary.isBlank()) {
                 summary = t("Updated %d files.", applied.changed());
@@ -717,6 +734,9 @@ public final class AiPanel extends JPanel {
     }
 
     private ApplyResult applyEdits(List<FileWrite> writes, List<String> deletes, Consumer<ProgressEvent> progress) {
+        if (!approveChanges(writes, deletes)) {
+            return new ApplyResult(0, List.of(t("Changes rejected.")));
+        }
         Map<Path, String> undo = new LinkedHashMap<>();
         List<String> errors = new ArrayList<>();
         int changed = 0;
@@ -754,6 +774,36 @@ public final class AiPanel extends JPanel {
         }
         lastUndo = undo;
         return new ApplyResult(changed, errors);
+    }
+
+    private boolean approveChanges(List<FileWrite> writes, List<String> deletes) {
+        List<AiDiffDialog.Change> changes = new ArrayList<>();
+        for (FileWrite write : writes) {
+            Path target = ProjectContext.safeResolve(projectRoot, write.path());
+            if (target == null) continue;
+            String oldText = "";
+            try {
+                if (Files.isRegularFile(target)) oldText = Files.readString(target, StandardCharsets.UTF_8);
+            } catch (Exception ignored) { }
+            changes.add(new AiDiffDialog.Change(write.path(), oldText, write.content(), false));
+        }
+        for (String delete : deletes) {
+            Path target = ProjectContext.safeResolve(projectRoot, delete);
+            if (target == null || !Files.isRegularFile(target)) continue;
+            try {
+                changes.add(new AiDiffDialog.Change(delete, Files.readString(target, StandardCharsets.UTF_8), "", true));
+            } catch (Exception ignored) { }
+        }
+        if (changes.isEmpty()) return true;
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        if (SwingUtilities.isEventDispatchThread()) return AiDiffDialog.approve(owner, changes);
+        final boolean[] approved = {false};
+        try {
+            SwingUtilities.invokeAndWait(() -> approved[0] = AiDiffDialog.approve(owner, changes));
+        } catch (Exception ex) {
+            return false;
+        }
+        return approved[0];
     }
 
     private List<FileWrite> parseWrites(String answer) {
@@ -839,10 +889,15 @@ public final class AiPanel extends JPanel {
     }
 
     private void updateUsageLabel() {
-        if (sessionTotal <= 0) {
-            usageLabel.setText("0 tok");
+        int budget = Math.max(4000, config.tokenBudget());
+        if (!config.tokenBudgetEnabled()) {
+            usageLabel.setText((sessionTotal <= 0 ? "0" : AiPricing.formatTokens(sessionTotal)) + " tok • ~"
+                    + AiPricing.formatCost(sessionCost));
+        } else if (sessionTotal <= 0) {
+            usageLabel.setText("0 / " + AiPricing.formatTokens(budget) + " tok");
         } else {
-            usageLabel.setText(AiPricing.formatTokens(sessionTotal) + " tok • ~" + AiPricing.formatCost(sessionCost));
+            usageLabel.setText(AiPricing.formatTokens(sessionTotal) + " / " + AiPricing.formatTokens(budget)
+                    + " tok • ~" + AiPricing.formatCost(sessionCost));
         }
     }
 
@@ -893,6 +948,7 @@ public final class AiPanel extends JPanel {
     }
 
     private String currentFileText() {
+        SyntaxEditorPane editor = editorProvider == null ? null : editorProvider.get();
         if (editor == null) return "";
         String current = editor.getText();
         if (current.length() > 60_000) current = current.substring(0, 60_000) + "\n... (truncated)";

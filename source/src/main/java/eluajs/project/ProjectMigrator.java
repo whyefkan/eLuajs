@@ -16,6 +16,15 @@ public final class ProjectMigrator {
 
     public static Result migrate(Path root) {
         try {
+            Path meta = root.resolve(".eluajs/project.properties");
+            boolean imported = false;
+            if (Files.isRegularFile(meta)) {
+                Properties check = new Properties();
+                try (InputStream in = Files.newInputStream(meta)) { check.load(in); }
+                imported = Boolean.parseBoolean(check.getProperty("imported", "false"));
+            }
+            if (imported) return new Result(false, "İçe aktarılan proje: otomatik geçiş uygulanmadı.");
+
             boolean changed = false;
             Path gradleProps = root.resolve("gradle.properties");
             if (Files.isRegularFile(gradleProps)) {
@@ -32,7 +41,6 @@ public final class ProjectMigrator {
                 }
             }
 
-            Path meta = root.resolve(".eluajs/project.properties");
             if (Files.isRegularFile(meta)) {
                 Properties p = new Properties();
                 try (InputStream in = Files.newInputStream(meta)) { p.load(in); }

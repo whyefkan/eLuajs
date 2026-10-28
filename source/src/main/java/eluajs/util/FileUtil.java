@@ -99,6 +99,10 @@ public final class FileUtil {
         String n = path.getFileName().toString().toLowerCase();
         return n.endsWith(".java") || n.endsWith(".kt") || n.endsWith(".xml") || n.endsWith(".gradle") ||
                 n.endsWith(".kts") || n.endsWith(".properties") || n.endsWith(".txt") || n.endsWith(".md") ||
-                n.endsWith(".json") || n.endsWith(".pro") || n.endsWith(".gitignore");
+                n.endsWith(".json") || n.endsWith(".pro") || n.endsWith(".gitignore") || n.endsWith(".html") ||
+                n.endsWith(".htm") || n.endsWith(".css") || n.endsWith(".js") || n.endsWith(".ts") ||
+                n.endsWith(".jsx") || n.endsWith(".tsx") || n.endsWith(".svg") || n.endsWith(".yaml") ||
+                n.endsWith(".yml") || n.endsWith(".toml") || n.endsWith(".ini") || n.endsWith(".sh") ||
+                n.endsWith(".bat") || n.endsWith(".ps1");
     }
 }

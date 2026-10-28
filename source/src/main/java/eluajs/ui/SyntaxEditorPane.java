@@ -7,11 +7,13 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.*;
+import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,20 +23,25 @@ import java.util.regex.Pattern;
 
 /** Lightweight syntax-colored editor with dependency-free Java completion. */
 public final class SyntaxEditorPane extends JTextPane {
-    private final SimpleAttributeSet normal = attrs(new Color(226, 232, 240), Font.PLAIN);
-    private final SimpleAttributeSet keyword = attrs(new Color(198, 120, 221), Font.BOLD);
-    private final SimpleAttributeSet type = attrs(new Color(97, 175, 239), Font.PLAIN);
-    private final SimpleAttributeSet method = attrs(new Color(86, 182, 194), Font.PLAIN);
-    private final SimpleAttributeSet string = attrs(new Color(152, 195, 121), Font.PLAIN);
-    private final SimpleAttributeSet number = attrs(new Color(209, 154, 102), Font.PLAIN);
-    private final SimpleAttributeSet comment = attrs(new Color(106, 153, 85), Font.ITALIC);
-    private final SimpleAttributeSet annotation = attrs(new Color(229, 192, 123), Font.PLAIN);
-    private final SimpleAttributeSet xmlTag = attrs(new Color(224, 108, 117), Font.BOLD);
-    private final SimpleAttributeSet xmlAttr = attrs(new Color(209, 154, 102), Font.PLAIN);
-    private final SimpleAttributeSet propertyKey = attrs(new Color(97, 175, 239), Font.PLAIN);
+    private final SimpleAttributeSet normal = attrs(token(new Color(226, 232, 240), new Color(30, 41, 59)), Font.PLAIN);
+    private final SimpleAttributeSet keyword = attrs(token(new Color(198, 120, 221), new Color(126, 34, 206)), Font.BOLD);
+    private final SimpleAttributeSet type = attrs(token(new Color(97, 175, 239), new Color(29, 78, 216)), Font.PLAIN);
+    private final SimpleAttributeSet method = attrs(token(new Color(86, 182, 194), new Color(15, 118, 110)), Font.PLAIN);
+    private final SimpleAttributeSet string = attrs(token(new Color(152, 195, 121), new Color(22, 101, 52)), Font.PLAIN);
+    private final SimpleAttributeSet number = attrs(token(new Color(209, 154, 102), new Color(180, 83, 9)), Font.PLAIN);
+    private final SimpleAttributeSet comment = attrs(token(new Color(106, 153, 85), new Color(71, 85, 105)), Font.ITALIC);
+    private final SimpleAttributeSet annotation = attrs(token(new Color(229, 192, 123), new Color(133, 77, 14)), Font.PLAIN);
+    private final SimpleAttributeSet xmlTag = attrs(token(new Color(224, 108, 117), new Color(185, 28, 28)), Font.BOLD);
+    private final SimpleAttributeSet xmlAttr = attrs(token(new Color(209, 154, 102), new Color(180, 83, 9)), Font.PLAIN);
+    private final SimpleAttributeSet propertyKey = attrs(token(new Color(97, 175, 239), new Color(29, 78, 216)), Font.PLAIN);
 
     private String mode = "text";
     private boolean loadingDocument;
+    private int fontSize = 14;
+    private final List<int[]> folds = new ArrayList<>();
+    private final List<Object> bracketTags = new ArrayList<>();
+    private EditorFindDialog findDialog;
+    private final UndoManager undoManager = new UndoManager();
     private final Timer highlightTimer;
     private static final int HIGHLIGHT_DEBOUNCE_MS = 120;
     private static final int MAX_HIGHLIGHT_CHARS = 1_500_000;
@@ -119,22 +126,30 @@ public final class SyntaxEditorPane extends JTextPane {
     );
 
     public SyntaxEditorPane() {
-        setBackground(new Color(14, 19, 26));
-        setForeground(new Color(226, 232, 240));
+        setBackground(Theme.EDITOR);
+        setForeground(Theme.TEXT);
         setCaretColor(Theme.ACCENT);
-        setSelectionColor(new Color(46, 74, 68));
-        setSelectedTextColor(Color.WHITE);
+        setSelectionColor(Theme.SELECTION);
+        setSelectedTextColor(Theme.TEXT);
         setBorder(BorderFactory.createEmptyBorder(14, 16, 14, 16));
-        setFont(Theme.mono(14));
+        setFont(Theme.mono(fontSize));
         setToolTipText(t("Java dosyalarında Ctrl+Space ile kod tamamlama ve temel otomatik import"));
         highlightTimer = new Timer(HIGHLIGHT_DEBOUNCE_MS, e -> highlightNow());
         highlightTimer.setRepeats(false);
         getDocument().addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent e) { if (!loadingDocument) queueHighlight(); }
-            @Override public void removeUpdate(DocumentEvent e) { if (!loadingDocument) queueHighlight(); }
+            @Override public void insertUpdate(DocumentEvent e) {
+                if (!loadingDocument) { folds.clear(); queueHighlight(); }
+            }
+            @Override public void removeUpdate(DocumentEvent e) {
+                if (!loadingDocument) { folds.clear(); queueHighlight(); }
+            }
             @Override public void changedUpdate(DocumentEvent e) { }
         });
+        addCaretListener(e -> highlightMatchingBracket());
+        getDocument().addUndoableEditListener(undoManager);
         installCompletionShortcut();
+        installEditingShortcuts();
+        setComponentPopupMenu(editorMenu());
     }
 
     public void setFile(Path file, String text) {
@@ -146,11 +161,21 @@ public final class SyntaxEditorPane extends JTextPane {
             setCaretPosition(0);
         } finally {
             loadingDocument = false;
+            undoManager.discardAllEdits();
         }
         highlightNow();
     }
 
     public void refreshHighlighting() { highlightNow(); }
+
+    public void setZoom(int size) {
+        fontSize = Math.max(9, Math.min(30, size));
+        setFont(Theme.mono(fontSize));
+        updateAttributeFontSizes();
+        highlightNow();
+    }
+
+    public int zoom() { return fontSize; }
 
     @Override public boolean getScrollableTracksViewportWidth() {
         Component parent = getParent();
@@ -165,6 +190,208 @@ public final class SyntaxEditorPane extends JTextPane {
         am.put("eluajs-complete", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { showCompletion(); }
         });
+    }
+
+    private void installEditingShortcuts() {
+        InputMap im = getInputMap(JComponent.WHEN_FOCUSED);
+        ActionMap am = getActionMap();
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "eluajs-newline");
+        am.put("eluajs-newline", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { insertNewlineWithIndent(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK), "eluajs-undo");
+        am.put("eluajs-undo", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (undoManager.canUndo()) undoManager.undo();
+            }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Z, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "eluajs-redo");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_Y, InputEvent.CTRL_DOWN_MASK), "eluajs-redo");
+        am.put("eluajs-redo", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (undoManager.canRedo()) undoManager.redo();
+            }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK), "eluajs-find");
+        am.put("eluajs-find", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { openFindDialog(false); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_H, InputEvent.CTRL_DOWN_MASK), "eluajs-replace");
+        am.put("eluajs-replace", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { openFindDialog(true); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_EQUALS, InputEvent.CTRL_DOWN_MASK), "eluajs-zoom-in");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_PLUS, InputEvent.CTRL_DOWN_MASK), "eluajs-zoom-in");
+        am.put("eluajs-zoom-in", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { setZoom(fontSize + 1); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_MINUS, InputEvent.CTRL_DOWN_MASK), "eluajs-zoom-out");
+        am.put("eluajs-zoom-out", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { setZoom(fontSize - 1); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_0, InputEvent.CTRL_DOWN_MASK), "eluajs-zoom-reset");
+        am.put("eluajs-zoom-reset", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { setZoom(14); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_OPEN_BRACKET, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "eluajs-fold");
+        am.put("eluajs-fold", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { toggleFoldAtCaret(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_CLOSE_BRACKET, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "eluajs-unfold");
+        am.put("eluajs-unfold", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { unfoldAll(); }
+        });
+    }
+
+    private JPopupMenu editorMenu() {
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem find = new JMenuItem(t("Bul"));
+        find.addActionListener(e -> openFindDialog(false));
+        JMenuItem replace = new JMenuItem(t("Değiştir"));
+        replace.addActionListener(e -> openFindDialog(true));
+        JMenuItem fold = new JMenuItem(t("Bloğu Katla"));
+        fold.addActionListener(e -> toggleFoldAtCaret());
+        JMenuItem unfold = new JMenuItem(t("Tümünü Aç"));
+        unfold.addActionListener(e -> unfoldAll());
+        JMenuItem zoomIn = new JMenuItem(t("Yakınlaştır"));
+        zoomIn.addActionListener(e -> setZoom(fontSize + 1));
+        JMenuItem zoomOut = new JMenuItem(t("Uzaklaştır"));
+        zoomOut.addActionListener(e -> setZoom(fontSize - 1));
+        JMenuItem zoomReset = new JMenuItem(t("Yakınlaştırmayı Sıfırla"));
+        zoomReset.addActionListener(e -> setZoom(14));
+        menu.add(find);
+        menu.add(replace);
+        menu.addSeparator();
+        menu.add(fold);
+        menu.add(unfold);
+        menu.addSeparator();
+        menu.add(zoomIn);
+        menu.add(zoomOut);
+        menu.add(zoomReset);
+        return menu;
+    }
+
+    private void insertNewlineWithIndent() {
+        int caret = getCaretPosition();
+        Element root = getDocument().getDefaultRootElement();
+        Element line = root.getElement(root.getElementIndex(caret));
+        String indent = "";
+        if (line != null) {
+            try {
+                String before = getDocument().getText(line.getStartOffset(), Math.max(0, caret - line.getStartOffset()));
+                int i = 0;
+                while (i < before.length() && (before.charAt(i) == ' ' || before.charAt(i) == '\t')) i++;
+                indent = before.substring(0, i);
+                String trimmed = before.stripTrailing();
+                if (trimmed.endsWith("{") || trimmed.endsWith("(") || trimmed.endsWith("[")) indent += "    ";
+                if (trimmed.endsWith("}") || trimmed.endsWith(")") || trimmed.endsWith("]")) {
+                    if (indent.endsWith("    ")) indent = indent.substring(0, indent.length() - 4);
+                }
+            } catch (BadLocationException ignored) { }
+        }
+        replaceSelection("\n" + indent);
+    }
+
+    private void openFindDialog(boolean replace) {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        if (findDialog == null || !findDialog.isDisplayable()) {
+            findDialog = new EditorFindDialog(owner, () -> this);
+        }
+        findDialog.open(replace);
+    }
+
+    private void updateAttributeFontSizes() {
+        for (SimpleAttributeSet attrs : List.of(normal, keyword, type, method, string, number, comment,
+                annotation, xmlTag, xmlAttr, propertyKey)) {
+            StyleConstants.setFontSize(attrs, fontSize);
+        }
+    }
+
+    private void highlightMatchingBracket() {
+        Highlighter highlighter = getHighlighter();
+        for (Object tag : bracketTags) highlighter.removeHighlight(tag);
+        bracketTags.clear();
+        String text;
+        try { text = getText(); } catch (Exception ex) { return; }
+        int caret = Math.min(getCaretPosition(), text.length());
+        int position = -1;
+        if (caret > 0 && isBracket(text.charAt(caret - 1))) position = caret - 1;
+        else if (caret < text.length() && isBracket(text.charAt(caret))) position = caret;
+        if (position < 0) return;
+        int match = matchingBracket(text, position);
+        if (match < 0) return;
+        Highlighter.HighlightPainter painter =
+                new DefaultHighlighter.DefaultHighlightPainter(new Color(55, 214, 164, 80));
+        try {
+            bracketTags.add(highlighter.addHighlight(position, position + 1, painter));
+            bracketTags.add(highlighter.addHighlight(match, match + 1, painter));
+        } catch (BadLocationException ignored) { }
+    }
+
+    private static boolean isBracket(char c) {
+        return c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}';
+    }
+
+    private static int matchingBracket(String text, int position) {
+        char open = text.charAt(position);
+        boolean forward = open == '(' || open == '[' || open == '{';
+        char target = switch (open) {
+            case '(' -> ')';
+            case '[' -> ']';
+            case '{' -> '}';
+            case ')' -> '(';
+            case ']' -> '[';
+            case '}' -> '{';
+            default -> open;
+        };
+        int depth = 0;
+        if (forward) {
+            for (int i = position; i < text.length(); i++) {
+                char c = text.charAt(i);
+                if (c == open) depth++;
+                else if (c == target && --depth == 0) return i;
+            }
+        } else {
+            for (int i = position; i >= 0; i--) {
+                char c = text.charAt(i);
+                if (c == open) depth++;
+                else if (c == target && --depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+
+    private void toggleFoldAtCaret() {
+        String text = getText();
+        int caret = Math.min(getCaretPosition(), text.length());
+        int open = text.lastIndexOf('{', Math.max(0, caret));
+        if (open < 0) return;
+        int close = matchingBracket(text, open);
+        if (close <= open) return;
+        int start = text.indexOf('\n', open);
+        int end = text.lastIndexOf('\n', close);
+        if (start < 0 || end <= start) return;
+        folds.clear();
+        folds.add(new int[]{start + 1, end});
+        highlightNow();
+    }
+
+    private void unfoldAll() {
+        folds.clear();
+        highlightNow();
+    }
+
+    private void applyFolds() {
+        if (folds.isEmpty()) return;
+        StyledDocument doc = getStyledDocument();
+        SimpleAttributeSet hidden = new SimpleAttributeSet();
+        StyleConstants.setFontSize(hidden, 1);
+        StyleConstants.setForeground(hidden, getBackground());
+        for (int[] range : folds) {
+            int start = Math.max(0, Math.min(range[0], doc.getLength()));
+            int end = Math.max(start, Math.min(range[1], doc.getLength()));
+            if (end > start) doc.setCharacterAttributes(start, end - start, hidden, false);
+        }
     }
 
     private void showCompletion() {
@@ -206,7 +433,7 @@ public final class SyntaxEditorPane extends JTextPane {
 
         JPopupMenu popup = new JPopupMenu();
         popup.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
-        JScrollPane scroll = new JScrollPane(results);
+        JScrollPane scroll = Ui.scroll(results);
         scroll.setBorder(null);
         scroll.setPreferredSize(new Dimension(285, Math.min(235, 10 + results.getVisibleRowCount() * 25)));
         popup.add(scroll);
@@ -281,6 +508,7 @@ public final class SyntaxEditorPane extends JTextPane {
         catch (BadLocationException e) { return; }
 
         int caret = getCaretPosition();
+        updateAttributeFontSizes();
         doc.setCharacterAttributes(0, doc.getLength(), normal, true);
         if (doc.getLength() > MAX_HIGHLIGHT_CHARS) {
             setToolTipText(t("Büyük dosya: performans için syntax renklendirme geçici olarak sınırlandı."));
@@ -301,7 +529,9 @@ public final class SyntaxEditorPane extends JTextPane {
             // Renklendirme asla dosya açmayı engellememeli. Sorun çıkarsa düz metne döneriz.
             try { doc.setCharacterAttributes(0, doc.getLength(), normal, true); } catch (Throwable ignored) { }
         }
+        applyFolds();
         if (caret <= doc.getLength()) setCaretPosition(caret);
+        highlightMatchingBracket();
     }
 
     private void highlightJava(StyledDocument doc, String text) {
@@ -356,6 +586,10 @@ public final class SyntaxEditorPane extends JTextPane {
             int end = group == 0 ? m.end() : m.end(group);
             if (start >= 0 && end >= start) doc.setCharacterAttributes(start, end - start, style, false);
         }
+    }
+
+    private static Color token(Color dark, Color lightColor) {
+        return Theme.isLight() ? lightColor : dark;
     }
 
     private static String modeFor(Path file) {

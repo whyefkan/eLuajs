@@ -7,8 +7,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Dependency-free project text search.
@@ -21,6 +25,8 @@ public final class ProjectSearch {
     private ProjectSearch() {}
 
     public record Match(Path file, int line, String preview) { }
+
+    public record ReplaceResult(int files, int replacements, List<String> errors, Set<Path> changed) { }
 
     public static List<Match> search(Path projectRoot, String query, boolean caseSensitive, int maxResults) throws IOException {
         String needle = query == null ? "" : query.trim();
@@ -37,6 +43,44 @@ public final class ProjectSearch {
             }
         }
         return List.copyOf(out);
+    }
+
+    public static ReplaceResult replaceAll(Path projectRoot, String query, String replacement, boolean caseSensitive)
+            throws IOException {
+        String needle = query == null ? "" : query;
+        if (needle.isEmpty()) throw new IllegalArgumentException("Aranacak metin boş olamaz.");
+        String replacementText = replacement == null ? "" : replacement;
+        int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
+        Pattern pattern = Pattern.compile(Pattern.quote(needle), flags);
+        String quotedReplacement = Matcher.quoteReplacement(replacementText);
+        int files = 0;
+        int replacements = 0;
+        List<String> errors = new ArrayList<>();
+        Set<Path> changed = new LinkedHashSet<>();
+
+        try (var walk = Files.walk(projectRoot)) {
+            var it = walk.filter(Files::isRegularFile).filter(ProjectSearch::searchable).iterator();
+            while (it.hasNext()) {
+                Path file = it.next();
+                try {
+                    String text = Files.readString(file, StandardCharsets.UTF_8);
+                    Matcher matcher = pattern.matcher(text);
+                    int count = 0;
+                    while (matcher.find()) count++;
+                    if (count == 0) continue;
+                    FileUtil.recoveryCopy(projectRoot, file);
+                    String next = pattern.matcher(text).replaceAll(quotedReplacement);
+                    if (next.equals(text)) continue;
+                    FileUtil.writeStringAtomic(file, next);
+                    files++;
+                    replacements += count;
+                    changed.add(file);
+                } catch (Exception ex) {
+                    errors.add(file + ": " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+                }
+            }
+        }
+        return new ReplaceResult(files, replacements, List.copyOf(errors), Set.copyOf(changed));
     }
 
     private static void scanFile(Path file, String cmpNeedle, boolean caseSensitive, int limit, List<Match> out) {

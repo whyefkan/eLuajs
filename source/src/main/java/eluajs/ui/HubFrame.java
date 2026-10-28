@@ -115,6 +115,8 @@ public final class HubFrame extends JFrame {
         bar.add(Box.createVerticalStrut(4));
         bar.add(Ui.activityButton("plus", t("Yeni proje"), this::newProject));
         bar.add(Box.createVerticalStrut(4));
+        bar.add(Ui.activityButton("import", t("Proje İçe Aktar"), this::importProject));
+        bar.add(Box.createVerticalStrut(4));
         bar.add(Ui.activityButton("home", t("Başlangıç ekranı"), this::showWelcome));
         bar.add(Box.createVerticalStrut(4));
         bar.add(Ui.activityButton("folder", t("Projeler klasörünü aç"), this::openProjectsFolder));
@@ -146,9 +148,12 @@ public final class HubFrame extends JFrame {
         actions.setOpaque(false);
         JButton add = compact("＋", t("Yeni proje"));
         add.addActionListener(e -> newProject());
+        JButton importProject = compact("↓", t("Proje İçe Aktar"));
+        importProject.addActionListener(e -> importProject());
         JButton refresh = compact("⟳", t("Yenile"));
         refresh.addActionListener(e -> refresh());
         actions.add(add);
+        actions.add(importProject);
         actions.add(refresh);
         head.add(actions, BorderLayout.EAST);
         side.add(head, BorderLayout.NORTH);
@@ -179,7 +184,7 @@ public final class HubFrame extends JFrame {
             }
         });
 
-        JScrollPane scroll = new JScrollPane(sidebarList);
+        JScrollPane scroll = Ui.scroll(sidebarList);
         scroll.setBorder(null);
         scroll.getViewport().setBackground(Theme.SIDEBAR);
         scroll.getVerticalScrollBar().setUnitIncrement(18);
@@ -257,19 +262,19 @@ public final class HubFrame extends JFrame {
         JButton create = Ui.button("＋  " + t("Yeni Proje"), true);
         create.setPreferredSize(new Dimension(150, 40));
         create.addActionListener(e -> newProject());
+        JButton importProject = Ui.button("↓  " + t("İçe Aktar"), false);
+        importProject.setPreferredSize(new Dimension(150, 40));
+        importProject.addActionListener(e -> importProject());
         JButton folder = Ui.button("▦  " + t("Projeler Klasörü"), false);
         folder.setPreferredSize(new Dimension(165, 40));
         folder.addActionListener(e -> openProjectsFolder());
         JButton reload = Ui.button("⟳  " + t("Yenile"), false);
         reload.setPreferredSize(new Dimension(110, 40));
         reload.addActionListener(e -> refresh());
-        JButton settings = Ui.button("⚙  " + t("Ayarlar"), false);
-        settings.setPreferredSize(new Dimension(112, 40));
-        settings.addActionListener(e -> openSettings());
         quick.add(create);
+        quick.add(importProject);
         quick.add(folder);
         quick.add(reload);
-        quick.add(settings);
         body.add(quick);
         body.add(Box.createVerticalStrut(22));
 
@@ -417,8 +422,9 @@ public final class HubFrame extends JFrame {
         JButton folder = Ui.button("▦  " + t("Klasörü Aç"), false);
         folder.setPreferredSize(new Dimension(145, 40));
         folder.addActionListener(e -> openFolder(meta.rootDir()));
-        JButton del = Ui.dangerButton(t("Sil"));
-        del.setPreferredSize(new Dimension(74, 40));
+        boolean managed = store.isManaged(meta);
+        JButton del = Ui.dangerButton(managed ? t("Sil") : t("Listeden Kaldır"));
+        del.setPreferredSize(new Dimension(managed ? 74 : 140, 40));
         del.addActionListener(e -> delete(meta));
         actions.add(open);
         actions.add(folder);
@@ -466,7 +472,7 @@ public final class HubFrame extends JFrame {
     }
 
     private JScrollPane scroll(JComponent body) {
-        JScrollPane scroll = new JScrollPane(body);
+        JScrollPane scroll = Ui.scroll(body);
         scroll.setBorder(null);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
@@ -562,7 +568,7 @@ public final class HubFrame extends JFrame {
         open.addActionListener(e -> openProject(meta));
         JMenuItem reveal = new JMenuItem(t("Klasörü Aç"));
         reveal.addActionListener(e -> openFolder(meta.rootDir()));
-        JMenuItem del = new JMenuItem(t("Sil"));
+        JMenuItem del = new JMenuItem(store.isManaged(meta) ? t("Sil") : t("Listeden Kaldır"));
         del.addActionListener(e -> delete(meta));
         menu.add(open);
         menu.add(reveal);
@@ -587,10 +593,25 @@ public final class HubFrame extends JFrame {
         }
     }
 
+    private void importProject() {
+        ImportProjectDialog dialog = new ImportProjectDialog(this);
+        dialog.setVisible(true);
+        ProjectMeta imported = dialog.imported();
+        if (imported != null) {
+            selected = imported;
+            refresh();
+            new EditorFrame(imported, this::refresh).setVisible(true);
+        }
+    }
+
     private void delete(ProjectMeta meta) {
-        int choice = JOptionPane.showConfirmDialog(this,
-                t("'%s' projesi kalıcı olarak silinsin mi?\n\n%s", meta.appName(), meta.rootDir()),
-                t("Projeyi Sil"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        boolean managed = store.isManaged(meta);
+        String message = managed
+                ? t("'%s' projesi kalıcı olarak silinsin mi?\n\n%s", meta.appName(), meta.rootDir())
+                : t("'%s' eLuajs listesinden kaldırılsın mı?\n\nProje dosyaları silinmez:\n%s", meta.appName(), meta.rootDir());
+        int choice = JOptionPane.showConfirmDialog(this, message,
+                managed ? t("Projeyi Sil") : t("Listeden Kaldır"),
+                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (choice != JOptionPane.YES_OPTION) return;
         try {
             if (selected != null && selected.rootDir().equals(meta.rootDir())) selected = null;

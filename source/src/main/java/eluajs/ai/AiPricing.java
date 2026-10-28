@@ -11,6 +11,14 @@ public final class AiPricing {
     private static final List<Rate> RATES = new ArrayList<>();
 
     static {
+        rate("gpt-6-astra", 10.00, 50.00);
+        rate("gpt-6.1-sol", 2.00, 10.00);
+        rate("gpt-6.1-terra", 1.00, 5.00);
+        rate("gpt-6-luna", 0.10, 0.50);
+        rate("claude-fable-5-1", 10.00, 50.00);
+        rate("claude-opus-5-5", 4.00, 20.00);
+        rate("claude-sonnet-5-5", 2.00, 10.00);
+        rate("claude-haiku-5-5", 0.10, 0.50);
         rate("gpt-5-mini", 0.25, 2.00);
         rate("gpt-5-nano", 0.05, 0.40);
         rate("gpt-5", 1.25, 10.00);

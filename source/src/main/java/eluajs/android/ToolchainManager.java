@@ -3,6 +3,7 @@ package eluajs.android;
 import eluajs.util.AppPaths;
 import eluajs.util.FileUtil;
 import eluajs.util.Platform;
+import eluajs.project.ProjectLayout;
 
 import java.io.File;
 import java.io.IOException;
@@ -138,14 +139,56 @@ public final class ToolchainManager {
         FileUtil.writeStringAtomic(local, "sdk.dir=" + sdkEscaped + "\n");
         Map<String,String> env = environment();
         log.accept("APK derlemesi başlatıldı...");
-        int exit = ProcessRunner.run(toolCommand(gradleExecutable(), "--no-daemon", "--console=plain", ":app:assembleDebug"), projectRoot, env, null, log);
+        int exit = ProcessRunner.run(toolCommand(gradleExecutable(), "--no-daemon", "--console=plain",
+                ProjectLayout.task(projectRoot, "assembleDebug")), projectRoot, env, null, log);
         if (exit != 0) throw new IOException("Gradle derlemesi başarısız (kod " + exit + "). Ayrıntılar yukarıdaki günlükte.");
-        Path apk = projectRoot.resolve("app/build/outputs/apk/debug/app-debug.apk");
-        if (!Files.isRegularFile(apk)) throw new IOException("Derleme tamamlandı ancak APK bulunamadı: " + apk);
+        Path apk = ProjectLayout.debugApk(projectRoot);
+        if (apk == null || !Files.isRegularFile(apk)) {
+            throw new IOException("Derleme tamamlandı ancak APK bulunamadı: "
+                    + (apk == null ? ProjectLayout.moduleDir(projectRoot).resolve("build/outputs/apk/debug") : apk));
+        }
         log.accept("APK hazır: " + apk);
         return apk;
     }
 
+
+    public static Path adbExecutable() {
+        return sdkRoot().resolve("platform-tools").resolve(Platform.exe("adb"));
+    }
+
+    public static List<String> adbDevices(Consumer<String> log) throws Exception {
+        Path adb = adbExecutable();
+        if (!Files.isRegularFile(adb)) {
+            throw new IOException("ADB bulunamadı. Android SDK platform-tools paketini hazırlayın.");
+        }
+        List<String> devices = new ArrayList<>();
+        int exit = ProcessRunner.run(List.of(adb.toString(), "devices"), null, environment(), null, line -> {
+            if (log != null) log.accept(line);
+            String trimmed = line == null ? "" : line.trim();
+            if (trimmed.endsWith("\tdevice") || trimmed.endsWith(" device")) {
+                devices.add(trimmed.split("\\s+")[0]);
+            }
+        });
+        if (exit != 0) throw new IOException("ADB cihaz listesi alınamadı (kod " + exit + ").");
+        if (devices.isEmpty()) {
+            throw new IOException("Bağlı Android cihaz/emülatör bulunamadı. USB hata ayıklamayı açın.");
+        }
+        return devices;
+    }
+
+    public static void installApk(Path apk, Consumer<String> log) throws Exception {
+        if (apk == null || !Files.isRegularFile(apk)) throw new IOException("Yüklenecek APK bulunamadı.");
+        List<String> devices = adbDevices(log);
+        String serial = devices.get(0);
+        if (devices.size() > 1 && log != null) {
+            log.accept("Birden fazla cihaz bulundu; ilk cihaz kullanılıyor: " + serial);
+        }
+        if (log != null) log.accept("APK yükleniyor: " + apk.getFileName() + " → " + serial);
+        int exit = ProcessRunner.run(List.of(adbExecutable().toString(), "-s", serial, "install", "-r", apk.toString()),
+                null, environment(), null, log);
+        if (exit != 0) throw new IOException("ADB install başarısız (kod " + exit + ").");
+        if (log != null) log.accept("APK cihaza yüklendi: " + serial);
+    }
 
     public static void generateUploadKeystore(Path storeFile, String alias, String storePassword, String keyPassword, String commonName, Consumer<String> log) throws Exception {
         if (!javaReady()) throw new IllegalStateException("JDK/keytool eksik: " + javaHome());
@@ -212,12 +255,15 @@ public final class ToolchainManager {
             log.accept("İmzalama: " + signing.storeFile() + " / alias=" + signing.keyAlias());
         }
         int exit = ProcessRunner.run(toolCommand(gradleExecutable(), "--no-daemon", "--console=plain",
-                        "--init-script", initScript.toString(), ":app:bundleRelease"),
+                        "--init-script", initScript.toString(), ProjectLayout.task(projectRoot, "bundleRelease")),
                 projectRoot, env, null, log);
         if (exit != 0) throw new IOException("Release AAB Gradle derlemesi başarısız (kod " + exit + "). Ayrıntılar yukarıdaki günlükte.");
 
-        Path aab = projectRoot.resolve("app/build/outputs/bundle/release/app-release.aab");
-        if (!Files.isRegularFile(aab)) throw new IOException("Derleme tamamlandı ancak AAB bulunamadı: " + aab);
+        Path aab = ProjectLayout.releaseAab(projectRoot);
+        if (aab == null || !Files.isRegularFile(aab)) {
+            throw new IOException("Derleme tamamlandı ancak AAB bulunamadı: "
+                    + (aab == null ? ProjectLayout.moduleDir(projectRoot).resolve("build/outputs/bundle/release") : aab));
+        }
         if (!bundleLooksSigned(aab)) throw new IOException("AAB üretildi ancak imza girdileri doğrulanamadı. Play Store'a yüklemeden önce imzalamayı kontrol edin.");
 
         Path releaseDir = projectRoot.resolve("release");

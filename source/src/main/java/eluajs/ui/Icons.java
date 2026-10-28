@@ -203,6 +203,34 @@ public final class Icons {
                 p.closePath();
                 g2.draw(p);
             }
+            case "import" -> {
+                g2.draw(new Line2D.Float(s * .50f, s * .20f, s * .50f, s * .62f));
+                g2.draw(new Line2D.Float(s * .34f, s * .48f, s * .50f, s * .64f));
+                g2.draw(new Line2D.Float(s * .66f, s * .48f, s * .50f, s * .64f));
+                g2.draw(new Line2D.Float(s * .26f, s * .76f, s * .74f, s * .76f));
+                g2.draw(new Line2D.Float(s * .26f, s * .76f, s * .26f, s * .66f));
+                g2.draw(new Line2D.Float(s * .74f, s * .76f, s * .74f, s * .66f));
+            }
+            case "tune" -> {
+                g2.draw(new Line2D.Float(s * .18f, s * .30f, s * .82f, s * .30f));
+                g2.draw(new Line2D.Float(s * .18f, s * .52f, s * .82f, s * .52f));
+                g2.draw(new Line2D.Float(s * .18f, s * .74f, s * .82f, s * .74f));
+                g2.fill(new java.awt.geom.Ellipse2D.Float(s * .34f, s * .22f, s * .16f, s * .16f));
+                g2.fill(new java.awt.geom.Ellipse2D.Float(s * .58f, s * .44f, s * .16f, s * .16f));
+                g2.fill(new java.awt.geom.Ellipse2D.Float(s * .42f, s * .66f, s * .16f, s * .16f));
+            }
+            case "git" -> {
+                g2.draw(new Line2D.Float(s * .33f, s * .24f, s * .33f, s * .76f));
+                g2.draw(new Line2D.Float(s * .33f, s * .48f, s * .67f, s * .34f));
+                g2.draw(new java.awt.geom.Ellipse2D.Float(s * .24f, s * .14f, s * .18f, s * .18f));
+                g2.draw(new java.awt.geom.Ellipse2D.Float(s * .24f, s * .68f, s * .18f, s * .18f));
+                g2.draw(new java.awt.geom.Ellipse2D.Float(s * .58f, s * .24f, s * .18f, s * .18f));
+            }
+            case "split" -> {
+                g2.draw(new Line2D.Float(s * .50f, s * .18f, s * .50f, s * .82f));
+                g2.draw(new RoundRectangle2D.Float(s * .16f, s * .22f, s * .26f, s * .56f, s * .06f, s * .06f));
+                g2.draw(new RoundRectangle2D.Float(s * .58f, s * .22f, s * .26f, s * .56f, s * .06f, s * .06f));
+            }
             case "save" -> {
                 Path2D.Float p = new Path2D.Float();
                 p.moveTo(s * .22f, s * .16f);

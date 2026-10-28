@@ -4,6 +4,7 @@ import eluajs.ai.AiClient;
 import eluajs.ai.AiConfig;
 import eluajs.ai.AiProvider;
 import eluajs.util.I18n;
+import eluajs.util.CrashReporter;
 import eluajs.update.UpdateConfig;
 import eluajs.update.UpdateManager;
 
@@ -31,15 +32,22 @@ public final class SettingsDialog extends JDialog {
 
     private final JComboBox<LangItem> languageCombo = new JComboBox<>(new LangItem[]{
             new LangItem(I18n.Lang.EN, t("English (default)")),
-            new LangItem(I18n.Lang.TR, t("Turkish"))
+            new LangItem(I18n.Lang.TR, t("Turkish")),
+            new LangItem(I18n.Lang.DE, t("German")),
+            new LangItem(I18n.Lang.FR, t("French")),
+            new LangItem(I18n.Lang.ES, t("Spanish")),
+            new LangItem(I18n.Lang.RU, t("Russian"))
     });
     private final JComboBox<AiProvider> providerCombo = new JComboBox<>(AiProvider.values());
     private final JComboBox<String> modelCombo = new JComboBox<>();
     private final JTextField baseUrl = Ui.field();
     private final JPasswordField apiKey = Ui.passwordField();
+    private final JTextField tokenBudget = Ui.field();
+    private final JCheckBox tokenBudgetEnabled = new JCheckBox(t("Bütçe sınırı"));
     private final JCheckBox showKey = new JCheckBox(t("Show"));
     private final JLabel status = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
     private final JLabel savedProviders = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
+    private final JComboBox<String> themeCombo = new JComboBox<>(new String[]{t("Dark"), t("Light")});
     private final JCheckBox autoUpdate = new JCheckBox(t("Check for updates automatically on startup"));
     private final JLabel updateStatus = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
 
@@ -146,16 +154,27 @@ public final class SettingsDialog extends JDialog {
     }
 
     private JComponent scrollPage(JComponent page) {
-        JPanel body = new JPanel(new BorderLayout());
+        ScrollBody body = new ScrollBody();
         body.setBackground(Theme.BG);
         body.add(page, BorderLayout.NORTH);
-        JScrollPane scroll = new JScrollPane(body);
+        JScrollPane scroll = Ui.scroll(body);
         scroll.setBorder(null);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.getVerticalScrollBar().setUnitIncrement(18);
         return scroll;
+    }
+
+    private static final class ScrollBody extends JPanel implements Scrollable {
+        ScrollBody() { super(new BorderLayout()); }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) { return 18; }
+        @Override public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return Math.max(40, orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width);
+        }
     }
 
     private JComponent generalPage() {
@@ -182,8 +201,12 @@ public final class SettingsDialog extends JDialog {
         styleCombo(languageCombo);
         languageCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
         languageCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
-        if (I18n.language() == I18n.Lang.TR) languageCombo.setSelectedIndex(1);
-        else languageCombo.setSelectedIndex(0);
+        for (int i = 0; i < languageCombo.getItemCount(); i++) {
+            if (languageCombo.getItemAt(i).lang() == I18n.language()) {
+                languageCombo.setSelectedIndex(i);
+                break;
+            }
+        }
         languageBody.add(languageCombo);
         languageBody.add(Box.createVerticalStrut(6));
         JLabel note = Ui.label(t("Language changes are applied when you restart eLuajs."), 10, Font.PLAIN, Theme.MUTED);
@@ -196,13 +219,60 @@ public final class SettingsDialog extends JDialog {
         JPanel appearance = Ui.softCard(new BorderLayout(0, 7));
         appearance.setAlignmentX(Component.LEFT_ALIGNMENT);
         appearance.setBorder(new EmptyBorder(14, 18, 14, 18));
-        appearance.setMaximumSize(new Dimension(Integer.MAX_VALUE, 100));
+        appearance.setMaximumSize(new Dimension(Integer.MAX_VALUE, 132));
         appearance.add(Ui.sectionLabel(t("Appearance")), BorderLayout.NORTH);
-        JLabel appearanceText = Ui.label(t("Lightweight VS Code style dark theme. Built for old computers."), 11, Font.PLAIN, Theme.TEXT_SOFT);
-        appearance.add(appearanceText, BorderLayout.CENTER);
+        JPanel themeBody = new JPanel();
+        themeBody.setOpaque(false);
+        themeBody.setLayout(new BoxLayout(themeBody, BoxLayout.Y_AXIS));
+        styleCombo(themeCombo);
+        themeCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
+        themeCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        themeCombo.setSelectedIndex(Theme.isLight() ? 1 : 0);
+        themeBody.add(themeCombo);
+        JLabel themeNote = Ui.label(t("Theme changes are applied when you restart eLuajs."), 10, Font.PLAIN, Theme.MUTED);
+        themeNote.setAlignmentX(Component.LEFT_ALIGNMENT);
+        themeBody.add(Box.createVerticalStrut(5));
+        themeBody.add(themeNote);
+        appearance.add(themeBody, BorderLayout.CENTER);
         page.add(appearance);
+        page.add(Box.createVerticalStrut(12));
+
+        JPanel crash = Ui.softCard(new BorderLayout(0, 7));
+        crash.setAlignmentX(Component.LEFT_ALIGNMENT);
+        crash.setBorder(new EmptyBorder(14, 18, 14, 18));
+        crash.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
+        crash.add(Ui.sectionLabel(t("Reliability")), BorderLayout.NORTH);
+        JPanel crashBody = new JPanel(new BorderLayout(8, 0));
+        crashBody.setOpaque(false);
+        crashBody.add(Ui.label(t("Unexpected errors are written to ~/.eluajs/crash.log."), 11, Font.PLAIN, Theme.TEXT_SOFT), BorderLayout.CENTER);
+        JButton openCrash = Ui.button(t("Open crash log"), false);
+        openCrash.addActionListener(e -> openCrashLog());
+        crashBody.add(openCrash, BorderLayout.EAST);
+        crash.add(crashBody, BorderLayout.CENTER);
+        page.add(crash);
         page.add(Box.createVerticalGlue());
         return page;
+    }
+
+    private void openCrashLog() {
+        try {
+            if (!java.nio.file.Files.isRegularFile(CrashReporter.logFile())) {
+                JOptionPane.showMessageDialog(this, t("No crash log yet."), t("Crash log"), JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(CrashReporter.logFile().toFile());
+            } else {
+                JTextArea area = new JTextArea(CrashReporter.tail(60_000));
+                area.setEditable(false);
+                area.setFont(Theme.mono(11));
+                JScrollPane scroll = Ui.scroll(area);
+                scroll.setPreferredSize(new Dimension(760, 480));
+                JOptionPane.showMessageDialog(this, scroll, t("Crash log"), JOptionPane.PLAIN_MESSAGE);
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Crash log"), JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private JComponent aiPage() {
@@ -228,7 +298,7 @@ public final class SettingsDialog extends JDialog {
         JPanel card = Ui.card(new BorderLayout(0, 13));
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setBorder(new EmptyBorder(16, 18, 16, 18));
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 360));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 430));
         card.add(Ui.sectionLabel(t("Active provider")), BorderLayout.NORTH);
 
         JPanel form = new JPanel();
@@ -279,6 +349,37 @@ public final class SettingsDialog extends JDialog {
         form.add(keyColumn);
         form.add(Box.createVerticalStrut(8));
 
+        JPanel budgetRow = new JPanel();
+        budgetRow.setOpaque(false);
+        budgetRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        budgetRow.setLayout(new BoxLayout(budgetRow, BoxLayout.Y_AXIS));
+        budgetRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
+        JPanel budgetLabelRow = new JPanel(new BorderLayout(8, 0));
+        budgetLabelRow.setOpaque(false);
+        budgetLabelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        budgetLabelRow.add(Ui.label(t("Token budget"), 9, Font.BOLD, Theme.MUTED), BorderLayout.WEST);
+        tokenBudgetEnabled.setOpaque(false);
+        tokenBudgetEnabled.setForeground(Theme.MUTED);
+        tokenBudgetEnabled.setFont(Theme.font(10, Font.PLAIN));
+        tokenBudgetEnabled.setFocusPainted(false);
+        budgetLabelRow.add(tokenBudgetEnabled, BorderLayout.EAST);
+        budgetRow.add(budgetLabelRow);
+        budgetRow.add(Box.createVerticalStrut(3));
+        budgetRow.add(tokenBudget);
+        budgetRow.setBorder(new EmptyBorder(0, 0, 0, 8));
+        tokenBudget.setVisible(tokenBudgetEnabled.isSelected());
+        budgetRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, tokenBudgetEnabled.isSelected() ? 58 : 28));
+        tokenBudgetEnabled.addActionListener(e -> {
+            boolean show = tokenBudgetEnabled.isSelected();
+            tokenBudget.setVisible(show);
+            tokenBudget.setEnabled(show);
+            budgetRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, show ? 58 : 28));
+            budgetRow.revalidate();
+            budgetRow.repaint();
+        });
+        form.add(budgetRow);
+        form.add(Box.createVerticalStrut(8));
+
         status.setAlignmentX(Component.LEFT_ALIGNMENT);
         form.add(status);
         card.add(form, BorderLayout.CENTER);
@@ -291,6 +392,7 @@ public final class SettingsDialog extends JDialog {
         saved.setMaximumSize(new Dimension(Integer.MAX_VALUE, 108));
         saved.add(Ui.sectionLabel(t("Saved providers")), BorderLayout.NORTH);
         saved.add(savedProviders, BorderLayout.CENTER);
+
         JLabel note = Ui.label(t("Keys are stored locally in ~/.eluajs/ai.properties and are never uploaded except to the provider you call."), 10, Font.PLAIN, Theme.MUTED);
         saved.add(note, BorderLayout.SOUTH);
         page.add(saved);
@@ -315,17 +417,19 @@ public final class SettingsDialog extends JDialog {
         JPanel card = Ui.card(new BorderLayout(0, 12));
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setBorder(new EmptyBorder(16, 18, 16, 18));
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 330));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 390));
         card.add(Ui.sectionLabel(t("Official repository")), BorderLayout.NORTH);
 
         JPanel form = new JPanel();
         form.setOpaque(false);
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+        form.setBorder(new EmptyBorder(0, 0, 0, 8));
 
-        JPanel official = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel official = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         official.setOpaque(false);
         official.setAlignmentX(Component.LEFT_ALIGNMENT);
         official.add(Ui.label(t("Official repository:"), 11, Font.PLAIN, Theme.MUTED));
+        official.add(Box.createHorizontalStrut(8));
         official.add(Ui.badge(UpdateManager.OFFICIAL_REPO, Theme.ACCENT));
         form.add(official);
         form.add(Box.createVerticalStrut(6));
@@ -342,13 +446,13 @@ public final class SettingsDialog extends JDialog {
         form.add(autoUpdate);
         form.add(Box.createVerticalStrut(8));
 
-        JPanel versionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel versionRow = new JPanel(new BorderLayout(8, 0));
         versionRow.setOpaque(false);
         versionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        versionRow.add(Ui.label(t("Current version: %s", UpdateManager.currentVersion()), 11, Font.PLAIN, Theme.TEXT_SOFT));
+        versionRow.add(Ui.label(t("Current version: %s", UpdateManager.currentVersion()), 11, Font.PLAIN, Theme.TEXT_SOFT), BorderLayout.WEST);
         JButton check = Ui.button(t("Check now"), true);
         check.addActionListener(e -> checkUpdates(check));
-        versionRow.add(check);
+        versionRow.add(check, BorderLayout.EAST);
         form.add(versionRow);
         form.add(Box.createVerticalStrut(8));
 
@@ -421,11 +525,13 @@ public final class SettingsDialog extends JDialog {
     private JPanel fieldColumn(String label, JComponent component) {
         JPanel column = new JPanel();
         column.setOpaque(false);
+        column.setAlignmentX(Component.LEFT_ALIGNMENT);
         column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
+        column.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
         JLabel l = Ui.label(label, 9, Font.BOLD, Theme.MUTED);
         l.setAlignmentX(Component.LEFT_ALIGNMENT);
         component.setAlignmentX(Component.LEFT_ALIGNMENT);
-        component.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        component.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
         column.add(l);
         column.add(Box.createVerticalStrut(3));
         column.add(component);
@@ -458,6 +564,7 @@ public final class SettingsDialog extends JDialog {
         loadingProvider = false;
         refreshSavedProviders();
         autoUpdate.setSelected(updateConfig.autoCheck());
+        themeCombo.setSelectedIndex(Theme.isLight() ? 1 : 0);
     }
 
     private void loadProviderFields() {
@@ -471,8 +578,22 @@ public final class SettingsDialog extends JDialog {
         baseUrl.setText(config.baseUrl(provider));
         apiKey.setText(config.key(provider));
         apiKey.setEchoChar(showKey.isSelected() ? (char) 0 : '\u2022');
-        status.setText(config.hasKey(provider) ? t("API key saved.") : t("No API key saved for this provider."));
-        status.setForeground(config.hasKey(provider) ? Theme.ACCENT : Theme.MUTED);
+        tokenBudget.setText(String.valueOf(config.tokenBudget()));
+        tokenBudgetEnabled.setSelected(config.tokenBudgetEnabled());
+        tokenBudget.setEnabled(config.tokenBudgetEnabled());
+        tokenBudget.setVisible(config.tokenBudgetEnabled());
+        if (tokenBudget.getParent() != null) {
+            tokenBudget.getParent().setMaximumSize(new Dimension(Integer.MAX_VALUE,
+                    config.tokenBudgetEnabled() ? 58 : 28));
+            tokenBudget.getParent().revalidate();
+        }
+        if (!provider.requiresKey()) {
+            status.setText(t("Local provider — no API key required."));
+            status.setForeground(Theme.ACCENT);
+        } else {
+            status.setText(config.hasKey(provider) ? t("API key saved.") : t("No API key saved for this provider."));
+            status.setForeground(config.hasKey(provider) ? Theme.ACCENT : Theme.MUTED);
+        }
         refreshSavedProviders();
     }
 
@@ -486,11 +607,14 @@ public final class SettingsDialog extends JDialog {
         config.setModel(provider, model == null ? "" : String.valueOf(model));
         config.setBaseUrl(provider, baseUrl.getText());
         config.setKey(provider, new String(apiKey.getPassword()));
+        config.setTokenBudgetEnabled(tokenBudgetEnabled.isSelected());
+        try { config.setTokenBudget(Integer.parseInt(tokenBudget.getText().trim())); }
+        catch (NumberFormatException ex) { config.setTokenBudget(24000); }
     }
 
     private void refreshSavedProviders() {
         String saved = Arrays.stream(AiProvider.values())
-                .filter(config::hasKey)
+                .filter(p -> !p.requiresKey() || config.hasKey(p))
                 .map(AiProvider::displayName)
                 .collect(Collectors.joining("  •  "));
         savedProviders.setText(saved.isEmpty() ? "—" : saved);
@@ -529,6 +653,11 @@ public final class SettingsDialog extends JDialog {
         config.save();
         updateConfig.setAutoCheck(autoUpdate.isSelected());
         updateConfig.save();
+        boolean light = themeCombo.getSelectedIndex() == 1;
+        if (light != Theme.isLight()) {
+            Theme.setLight(light);
+            languageChanged = true;
+        }
         LangItem selected = (LangItem) languageCombo.getSelectedItem();
         if (selected != null && selected.lang() != I18n.language()) {
             I18n.setLanguage(selected.lang());

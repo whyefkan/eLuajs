@@ -68,7 +68,7 @@ public final class AssetsDialog extends JDialog {
         files.setFixedCellHeight(28);
         files.setBorder(new EmptyBorder(7, 9, 7, 9));
         files.setCellRenderer(new FileRenderer());
-        JScrollPane scroll = new JScrollPane(files);
+        JScrollPane scroll = Ui.scroll(files);
         scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         center.add(scroll, BorderLayout.CENTER);
 

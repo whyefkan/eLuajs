@@ -21,6 +21,23 @@ public final class Ui {
         return b;
     }
 
+    public static JScrollPane scroll(java.awt.Component view) {
+        JScrollPane pane = new JScrollPane(view);
+        applyScrollTheme(pane);
+        return pane;
+    }
+
+    public static void applyScrollTheme(JScrollPane pane) {
+        if (pane == null) return;
+        for (JScrollBar bar : new JScrollBar[]{pane.getVerticalScrollBar(), pane.getHorizontalScrollBar()}) {
+            if (bar == null) continue;
+            bar.setUI(new Theme.FlatScrollBarUI());
+            bar.setOpaque(false);
+            bar.setUnitIncrement(18);
+            bar.setBorder(null);
+        }
+    }
+
     public static JLabel label(String text, int size, int style, Color c) {
         JLabel l = new JLabel(text);
         l.setFont(Theme.font(size, style));
@@ -66,6 +83,7 @@ public final class Ui {
                 if (w.isDisplayable()) w.dispose();
             }
             I18n.load();
+            Theme.load();
             Theme.install();
             new HubFrame().setVisible(true);
         });

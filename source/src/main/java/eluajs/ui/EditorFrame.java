@@ -3,6 +3,10 @@ package eluajs.ui;
 import eluajs.model.ProjectMeta;
 import eluajs.project.ProjectValidator;
 import eluajs.project.ProjectMigrator;
+import eluajs.project.ProjectSearch;
+import eluajs.project.Problem;
+import eluajs.project.ProjectLayout;
+import eluajs.project.ProjectFileManager;
 import eluajs.project.ProjectActivityManager;
 import eluajs.util.FileUtil;
 
@@ -17,11 +21,17 @@ import javax.swing.tree.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class EditorFrame extends JFrame {
@@ -30,7 +40,18 @@ public final class EditorFrame extends JFrame {
     private final JTree tree = new JTree();
     private final DefaultListModel<ProjectActivityManager.ActivityInfo> pagesModel = new DefaultListModel<>();
     private final JList<ProjectActivityManager.ActivityInfo> pagesList = new JList<>(pagesModel);
-    private final SyntaxEditorPane editor = new SyntaxEditorPane();
+    private SyntaxEditorPane editor = new SyntaxEditorPane();
+    private final SyntaxEditorPane emptyEditor = editor;
+    private final SyntaxEditorPane splitEditor = new SyntaxEditorPane();
+    private final JTabbedPane editorTabs = new JTabbedPane();
+    private final CardLayout editorCards = new CardLayout();
+    private final JPanel editorHost = new JPanel(editorCards);
+    private final Map<Path, EditorTab> openTabs = new LinkedHashMap<>();
+    private final JPanel splitPanel = new JPanel(new BorderLayout());
+    private final JSplitPane editorSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+    private EditorTab activeTab;
+    private boolean tabsUpdating;
+    private boolean splitVisible;
     private final JTextArea console = new JTextArea();
     private final JLabel currentFile = Ui.label(t("Dosya seçin"), 12, Font.PLAIN, Theme.TEXT_SOFT);
     private final JLabel breadcrumb = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
@@ -43,7 +64,22 @@ public final class EditorFrame extends JFrame {
     private Ui.ActivityButton pagesActivity;
     private Ui.ActivityButton aiActivity;
     private AiPanel aiPanel;
-    private ProjectSearchDialog searchDialog;
+    private final CardLayout bottomCards = new CardLayout();
+    private final JPanel bottomContent = new JPanel(bottomCards);
+    private final JPanel bottomTabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+    private final Map<String, JButton> bottomTabButtons = new HashMap<>();
+    private final DefaultListModel<Problem> problemsModel = new DefaultListModel<>();
+    private final JList<Problem> problemsList = new JList<>(problemsModel);
+    private final JLabel problemsStatus = Ui.label(t("Sorun yok."), 11, Font.PLAIN, Theme.MUTED);
+    private final JTextField searchQuery = Ui.field();
+    private final JTextField searchReplace = Ui.field();
+    private final JCheckBox searchCase = new JCheckBox(t("Büyük/küçük harf duyarlı"));
+    private final DefaultListModel<ProjectSearch.Match> searchModel = new DefaultListModel<>();
+    private final JList<ProjectSearch.Match> searchResults = new JList<>(searchModel);
+    private final JLabel searchStatus = Ui.label(t("Aranacak metni yazın."), 11, Font.PLAIN, Theme.MUTED);
+    private final JButton searchButton = Ui.button("⌕  " + t("Ara"), true);
+    private final JButton replaceAllButton = Ui.button(t("Tümünü Değiştir"), false);
+    private String activeBottomTab = "output";
     private Path openedFile;
     private boolean dirty;
     private final AtomicInteger treeReloadGeneration = new AtomicInteger();
@@ -53,7 +89,7 @@ public final class EditorFrame extends JFrame {
         WindowChrome.install(this);
         this.meta = meta;
         this.onCloseRefresh = onCloseRefresh;
-        this.aiPanel = new AiPanel(editor,
+        this.aiPanel = new AiPanel(this::activeEditor,
                 () -> openedFile == null ? t("Dosya seçin") : meta.rootDir().relativize(openedFile).toString(),
                 () -> openedFile,
                 meta.rootDir(),
@@ -117,13 +153,23 @@ public final class EditorFrame extends JFrame {
         save.addActionListener(e -> saveCurrent());
         JButton validate = Ui.iconButton(t("Doğrula"), "check", false);
         validate.addActionListener(e -> validateProject());
+        JButton split = Ui.iconButton(t("Böl"), "split", false);
+        split.setToolTipText(t("Yan yana önizleme (Ctrl+\\)"));
+        split.addActionListener(e -> toggleSplit());
         JButton build = Ui.iconButton(t("Derle / APK + AAB"), "run", true);
         build.addActionListener(e -> {
             saveCurrentSilently();
-            new BuildDialog(this, meta.rootDir(), this::openFileAtLine).setVisible(true);
+            clearProblems();
+            BuildDialog dialog = new BuildDialog(this, meta.rootDir(), this::openFileAtLine, this::addProblem);
+            dialog.setBuildFix(log -> {
+                showAiPanel();
+                aiPanel.fixBuild(log);
+            });
+            dialog.setVisible(true);
         });
         primary.add(save);
         primary.add(validate);
+        primary.add(split);
         primary.add(build);
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         right.setOpaque(false);
@@ -168,6 +214,10 @@ public final class EditorFrame extends JFrame {
         bar.add(Ui.activityButton("library", t("Gradle kütüphaneleri"), this::openLibraries));
         bar.add(Box.createVerticalStrut(4));
         bar.add(Ui.activityButton("permissions", t("Android izinleri"), this::openPermissions));
+        bar.add(Box.createVerticalStrut(4));
+        bar.add(Ui.activityButton("git", t("Git"), () -> new GitDialog(this, meta.rootDir()).setVisible(true)));
+        bar.add(Box.createVerticalStrut(4));
+        bar.add(Ui.activityButton("tune", t("Proje Ayarları"), this::openProjectSettings));
         bar.add(Box.createVerticalStrut(14));
         aiActivity = Ui.activityButton("ai", t("Yapay Zeka Asistanı (Ctrl+Alt+A)"), this::toggleAiPanel);
         bar.add(aiActivity);
@@ -191,9 +241,13 @@ public final class EditorFrame extends JFrame {
         head.add(sidebarTitle, BorderLayout.WEST);
         side.add(head, BorderLayout.NORTH);
 
-        JPanel actions = new JPanel(new GridLayout(2, 2, 9, 9));
+        JPanel actions = new JPanel(new GridLayout(3, 2, 9, 9));
         actions.setBackground(Theme.PANEL);
         actions.setBorder(new EmptyBorder(0, 14, 12, 14));
+        JButton addFile = compact("＋ " + t("Dosya"), t("Yeni dosya oluştur"));
+        addFile.addActionListener(e -> newTreeFile(treeTarget()));
+        JButton addFolder = compact("＋ " + t("Klasör"), t("Yeni klasör oluştur"));
+        addFolder.addActionListener(e -> newTreeFolder(treeTarget()));
         JButton addPage = compact("＋ " + t("Sayfa"), t("Yeni Android Activity / ekran oluştur"));
         addPage.addActionListener(e -> newActivity());
         JButton delPage = compact("− " + t("Sayfa"), t("Ek Android Activity / sayfayı sil"));
@@ -203,6 +257,8 @@ public final class EditorFrame extends JFrame {
         addClass.addActionListener(e -> newJavaClass());
         JButton refreshTree = compact("⟳ " + t("Yenile"), t("Dosya ağacını yenile"));
         refreshTree.addActionListener(e -> reloadTree());
+        actions.add(addFile);
+        actions.add(addFolder);
         actions.add(addPage);
         actions.add(delPage);
         actions.add(addClass);
@@ -232,7 +288,11 @@ public final class EditorFrame extends JFrame {
         tree.setCellRenderer(new DarkTreeRenderer());
         tree.setBorder(new EmptyBorder(8, 10, 12, 10));
         tree.addTreeSelectionListener(this::treeSelection);
-        JScrollPane treeScroll = new JScrollPane(tree);
+        tree.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) { if (e.isPopupTrigger()) showTreeMenu(e); }
+            @Override public void mouseReleased(MouseEvent e) { if (e.isPopupTrigger()) showTreeMenu(e); }
+        });
+        JScrollPane treeScroll = Ui.scroll(tree);
         treeScroll.getViewport().setBackground(Theme.PANEL);
         treeScroll.setBorder(null);
         return treeScroll;
@@ -247,51 +307,79 @@ public final class EditorFrame extends JFrame {
     }
 
     private JComponent workspace() {
-        editor.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { markDirty(); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { markDirty(); }
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { }
+        emptyEditor.setEditable(false);
+        emptyEditor.setBackground(Theme.EDITOR);
+        emptyEditor.setForeground(Theme.MUTED);
+        emptyEditor.setCaretColor(Theme.ACCENT);
+        emptyEditor.setText("\n\n  " + t("Dosya seçin"));
+        JScrollPane emptyScroll = Ui.scroll(emptyEditor);
+        emptyScroll.setBorder(null);
+        emptyScroll.getViewport().setBackground(Theme.EDITOR);
+
+        editorHost.setBackground(Theme.EDITOR);
+        editorHost.add(emptyScroll, "empty");
+        editorTabs.setFont(Theme.font(12, Font.PLAIN));
+        editorTabs.setUI(new Theme.FlatTabbedPaneUI());
+        editorTabs.setBackground(Theme.TAB_BAR);
+        editorTabs.setForeground(Theme.TEXT_SOFT);
+        editorTabs.setBorder(new EmptyBorder(0, 0, 0, 0));
+        editorTabs.addChangeListener(e -> {
+            if (!tabsUpdating) {
+                syncActiveTab();
+                updateTabStyles();
+            }
         });
-        editor.addCaretListener(e -> updateEditorStatus());
+        editorTabs.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isMiddleMouseButton(e)) {
+                    int index = editorTabs.indexAtLocation(e.getX(), e.getY());
+                    if (index >= 0 && editorTabs.getComponentAt(index) instanceof EditorTab tab) closeTab(tab);
+                }
+            }
+            @Override public void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    int index = editorTabs.indexAtLocation(e.getX(), e.getY());
+                    if (index >= 0) editorTabs.setSelectedIndex(index);
+                }
+                maybeTabMenu(e);
+            }
+            @Override public void mouseReleased(MouseEvent e) { maybeTabMenu(e); }
+        });
+        editorHost.add(editorTabs, "tabs");
+        editorCards.show(editorHost, "empty");
 
-        JScrollPane editorScroll = new JScrollPane(editor);
-        editorScroll.getViewport().setBackground(Theme.EDITOR);
-        editorScroll.setRowHeaderView(new LineNumberView(editor));
-        if (editorScroll.getRowHeader() != null) editorScroll.getRowHeader().setBackground(Theme.EDITOR);
-        editorScroll.setBorder(null);
-
-        JPanel tabBar = new JPanel(new BorderLayout());
-        tabBar.setBackground(Theme.TAB_BAR);
-        tabBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT));
-        tabBar.setPreferredSize(new Dimension(1, 38));
-
-        JPanel activeTab = new JPanel();
-        activeTab.setBackground(Theme.TAB_ACTIVE);
-        activeTab.setLayout(new BoxLayout(activeTab, BoxLayout.X_AXIS));
-        activeTab.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(2, 0, 0, 0, Theme.ACCENT),
-                new EmptyBorder(0, 14, 0, 18)));
-        tabDot.setAlignmentY(Component.CENTER_ALIGNMENT);
-        currentFile.setAlignmentY(Component.CENTER_ALIGNMENT);
-        activeTab.add(tabDot);
-        activeTab.add(Box.createHorizontalStrut(7));
-        activeTab.add(currentFile);
-        tabBar.add(activeTab, BorderLayout.WEST);
-
-        JPanel breadcrumbBar = new JPanel(new BorderLayout());
-        breadcrumbBar.setBackground(Theme.EDITOR);
-        breadcrumbBar.setBorder(BorderFactory.createCompoundBorder(
+        splitEditor.setBackground(Theme.EDITOR);
+        splitEditor.setForeground(Theme.TEXT);
+        splitEditor.setCaretColor(Theme.ACCENT);
+        splitEditor.setSelectionColor(Theme.SELECTION);
+        JScrollPane splitScroll = Ui.scroll(splitEditor);
+        splitScroll.setBorder(null);
+        splitScroll.getViewport().setBackground(Theme.EDITOR);
+        splitScroll.setRowHeaderView(new LineNumberView(splitEditor));
+        if (splitScroll.getRowHeader() != null) splitScroll.getRowHeader().setBackground(Theme.EDITOR);
+        JPanel splitHead = new JPanel(new BorderLayout());
+        splitHead.setBackground(Theme.TAB_BAR);
+        splitHead.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
-                new EmptyBorder(4, 15, 4, 14)));
-        breadcrumbBar.add(breadcrumb, BorderLayout.WEST);
+                new EmptyBorder(4, 10, 4, 10)));
+        splitHead.add(Ui.label(t("Split preview"), 10, Font.BOLD, Theme.MUTED), BorderLayout.WEST);
+        splitPanel.setBackground(Theme.EDITOR);
+        splitPanel.add(splitHead, BorderLayout.NORTH);
+        splitPanel.add(splitScroll, BorderLayout.CENTER);
+        splitPanel.setVisible(false);
+
+        editorSplit.setLeftComponent(editorHost);
+        editorSplit.setBorder(null);
+        editorSplit.setDividerSize(5);
+        editorSplit.setResizeWeight(0.5);
+        editorSplit.setBackground(Theme.BORDER_SOFT);
+
+        JPanel editorHead = new JPanel(new BorderLayout());
+        editorHead.setBackground(Theme.EDITOR);
+        editorHead.add(editorSplit, BorderLayout.CENTER);
 
         JPanel editorPanel = new JPanel(new BorderLayout());
         editorPanel.setBackground(Theme.EDITOR);
-        editorPanel.add(tabBar, BorderLayout.NORTH);
-        JPanel editorHead = new JPanel(new BorderLayout());
-        editorHead.setBackground(Theme.EDITOR);
-        editorHead.add(breadcrumbBar, BorderLayout.NORTH);
-        editorHead.add(editorScroll, BorderLayout.CENTER);
         editorPanel.add(editorHead, BorderLayout.CENTER);
 
         console.setEditable(false);
@@ -301,32 +389,7 @@ public final class EditorFrame extends JFrame {
         console.setCaretColor(Theme.ACCENT);
         console.setBorder(new EmptyBorder(10, 13, 10, 13));
         console.setText(t("eLuajs hazır. Dosya seçin, kodlayın, doğrulayın ve çıktı alın.") + "\n");
-        JScrollPane consoleScroll = new JScrollPane(console);
-        consoleScroll.setBorder(null);
-        consoleScroll.getViewport().setBackground(Theme.CONSOLE);
-
-        JPanel consoleWrap = new JPanel(new BorderLayout());
-        consoleWrap.setBackground(Theme.CONSOLE);
-        JPanel consoleHead = new JPanel(new BorderLayout());
-        consoleHead.setBackground(Theme.TAB_BAR);
-        consoleHead.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 1, 0, Theme.BORDER_SOFT),
-                new EmptyBorder(0, 10, 0, 8)));
-        JLabel outTab = Ui.label(t("ÇIKTI"), 10, Font.BOLD, Theme.TEXT);
-        outTab.setOpaque(true);
-        outTab.setBackground(Theme.TAB_ACTIVE);
-        outTab.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 2, 0, Theme.ACCENT),
-                new EmptyBorder(6, 10, 5, 10)));
-        JPanel outLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        outLeft.setOpaque(false);
-        outLeft.add(outTab);
-        consoleHead.add(outLeft, BorderLayout.WEST);
-        JButton clear = compact(t("Temizle"), t("Çıktıyı temizle"));
-        clear.addActionListener(e -> console.setText(""));
-        consoleHead.add(clear, BorderLayout.EAST);
-        consoleWrap.add(consoleHead, BorderLayout.NORTH);
-        consoleWrap.add(consoleScroll, BorderLayout.CENTER);
+        JComponent consoleWrap = bottomPanel();
 
         JSplitPane vertical = new JSplitPane(JSplitPane.VERTICAL_SPLIT, editorPanel, consoleWrap);
         vertical.setResizeWeight(0.80);
@@ -334,6 +397,628 @@ public final class EditorFrame extends JFrame {
         vertical.setBackground(Theme.BORDER_SOFT);
         vertical.setBorder(null);
         return vertical;
+    }
+
+    private JComponent bottomPanel() {
+        JPanel wrap = new JPanel(new BorderLayout());
+        wrap.setBackground(Theme.CONSOLE);
+        JPanel head = new JPanel(new BorderLayout());
+        head.setBackground(Theme.TAB_BAR);
+        head.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(0, 6, 0, 8)));
+        bottomTabs.setOpaque(false);
+        bottomTabs.add(tabButton("output", t("ÇIKTI")));
+        bottomTabs.add(tabButton("problems", t("SORUNLAR")));
+        bottomTabs.add(tabButton("search", t("ARAMA")));
+        head.add(bottomTabs, BorderLayout.WEST);
+        JButton clear = compact(t("Temizle"), t("Çıktıyı temizle"));
+        clear.addActionListener(e -> clearActiveBottom());
+        head.add(clear, BorderLayout.EAST);
+        wrap.add(head, BorderLayout.NORTH);
+
+        bottomContent.setOpaque(false);
+        bottomContent.add(outputPanel(), "output");
+        bottomContent.add(problemsPanel(), "problems");
+        bottomContent.add(searchPanel(), "search");
+        wrap.add(bottomContent, BorderLayout.CENTER);
+        showBottomCard("output");
+        return wrap;
+    }
+
+    private JButton tabButton(String key, String label) {
+        JButton button = new JButton(label);
+        button.setFont(Theme.font(10, Font.BOLD));
+        button.setOpaque(true);
+        button.setContentAreaFilled(true);
+        button.setFocusPainted(false);
+        button.setBorderPainted(false);
+        button.setBackground(Theme.TAB_BAR);
+        button.setForeground(Theme.MUTED);
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.setBorder(new EmptyBorder(8, 12, 6, 12));
+        button.addActionListener(e -> showBottomCard(key));
+        bottomTabButtons.put(key, button);
+        return button;
+    }
+
+    private void showBottomCard(String key) {
+        activeBottomTab = key;
+        bottomCards.show(bottomContent, key);
+        for (Map.Entry<String, JButton> entry : bottomTabButtons.entrySet()) {
+            boolean active = entry.getKey().equals(key);
+            JButton button = entry.getValue();
+            button.setBackground(active ? Theme.TAB_ACTIVE : Theme.TAB_BAR);
+            button.setForeground(active ? Theme.TEXT : Theme.MUTED);
+            button.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 2, 0, active ? Theme.ACCENT : Theme.TAB_BAR),
+                    new EmptyBorder(8, 12, 6, 12)));
+        }
+        if (key.equals("search")) SwingUtilities.invokeLater(searchQuery::requestFocusInWindow);
+    }
+
+    private void updateProblemsTab() {
+        JButton button = bottomTabButtons.get("problems");
+        if (button != null) {
+            button.setText(t("SORUNLAR") + (problemsModel.isEmpty() ? "" : "  " + problemsModel.size()));
+            bottomTabs.revalidate();
+            bottomTabs.repaint();
+        }
+    }
+
+    private void updateSearchTab() {
+        JButton button = bottomTabButtons.get("search");
+        if (button != null) {
+            button.setText(t("ARAMA") + (searchModel.isEmpty() ? "" : "  " + searchModel.size()));
+            bottomTabs.revalidate();
+            bottomTabs.repaint();
+        }
+    }
+
+    private void clearActiveBottom() {
+        switch (activeBottomTab) {
+            case "problems" -> clearProblems();
+            case "search" -> {
+                searchModel.clear();
+                searchStatus.setText(t("Aranacak metni yazın."));
+                updateSearchTab();
+            }
+            default -> console.setText("");
+        }
+    }
+
+    private JComponent outputPanel() {
+        JScrollPane scroll = Ui.scroll(console);
+        scroll.setBorder(null);
+        scroll.getViewport().setBackground(Theme.CONSOLE);
+        return scroll;
+    }
+
+    private JComponent problemsPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 6));
+        panel.setBackground(Theme.CONSOLE);
+        panel.setBorder(new EmptyBorder(8, 12, 8, 12));
+        JPanel statusRow = new JPanel(new BorderLayout());
+        statusRow.setOpaque(false);
+        statusRow.add(problemsStatus, BorderLayout.WEST);
+        panel.add(statusRow, BorderLayout.NORTH);
+
+        problemsList.setBackground(Theme.CONSOLE);
+        problemsList.setForeground(Theme.TEXT);
+        problemsList.setSelectionBackground(Theme.SELECTION);
+        problemsList.setSelectionForeground(Theme.TEXT);
+        problemsList.setFixedCellHeight(28);
+        problemsList.setBorder(new EmptyBorder(4, 2, 4, 2));
+        problemsList.setCellRenderer(new ProblemRenderer());
+        problemsList.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) openSelectedProblem();
+            }
+        });
+        JScrollPane scroll = Ui.scroll(problemsList);
+        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
+        scroll.getViewport().setBackground(Theme.CONSOLE);
+        panel.add(scroll, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private JComponent searchPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 7));
+        panel.setBackground(Theme.CONSOLE);
+        panel.setBorder(new EmptyBorder(8, 12, 8, 12));
+
+        JPanel form = new JPanel();
+        form.setOpaque(false);
+        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
+
+        JPanel firstRow = new JPanel(new BorderLayout(8, 0));
+        firstRow.setOpaque(false);
+        searchQuery.setToolTipText(t("Aranacak metin"));
+        searchQuery.addActionListener(e -> runSearch());
+        firstRow.add(searchQuery, BorderLayout.CENTER);
+        JPanel searchActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        searchActions.setOpaque(false);
+        searchCase.setOpaque(false);
+        searchCase.setForeground(Theme.MUTED);
+        searchCase.setFont(Theme.font(11, Font.PLAIN));
+        searchCase.setFocusPainted(false);
+        searchButton.addActionListener(e -> runSearch());
+        searchActions.add(searchCase);
+        searchActions.add(searchButton);
+        firstRow.add(searchActions, BorderLayout.EAST);
+
+        JPanel secondRow = new JPanel(new BorderLayout(8, 0));
+        secondRow.setOpaque(false);
+        searchReplace.setToolTipText(t("Yeni metin"));
+        searchReplace.addActionListener(e -> replaceAll());
+        secondRow.add(searchReplace, BorderLayout.CENTER);
+        replaceAllButton.addActionListener(e -> replaceAll());
+        secondRow.add(replaceAllButton, BorderLayout.EAST);
+
+        searchStatus.setBorder(new EmptyBorder(4, 1, 0, 0));
+        form.add(firstRow);
+        form.add(Box.createVerticalStrut(6));
+        form.add(secondRow);
+        form.add(Box.createVerticalStrut(2));
+        form.add(searchStatus);
+        panel.add(form, BorderLayout.NORTH);
+
+        searchResults.setBackground(Theme.CONSOLE);
+        searchResults.setForeground(Theme.TEXT);
+        searchResults.setSelectionBackground(Theme.SELECTION);
+        searchResults.setSelectionForeground(Theme.TEXT);
+        searchResults.setFixedCellHeight(28);
+        searchResults.setBorder(new EmptyBorder(4, 2, 4, 2));
+        searchResults.setCellRenderer(new SearchRenderer());
+        searchResults.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) openSelectedSearchResult();
+            }
+        });
+        JScrollPane scroll = Ui.scroll(searchResults);
+        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
+        scroll.getViewport().setBackground(Theme.CONSOLE);
+        panel.add(scroll, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private void showProblems(List<Problem> problems) {
+        problemsModel.clear();
+        for (Problem problem : problems) addProblem(problem);
+        problemsStatus.setText(problemsModel.isEmpty() ? t("Sorun yok.") : t("%d sorun", problemsModel.size()));
+        updateProblemsTab();
+        showBottomCard("problems");
+    }
+
+    private void addProblem(Problem problem) {
+        if (problem == null) return;
+        for (int i = 0; i < problemsModel.size(); i++) {
+            if (problemsModel.get(i).equals(problem)) return;
+        }
+        problemsModel.addElement(problem);
+        problemsStatus.setText(t("%d sorun", problemsModel.size()));
+        updateProblemsTab();
+    }
+
+    private void clearProblems() {
+        problemsModel.clear();
+        problemsStatus.setText(t("Sorun yok."));
+        updateProblemsTab();
+    }
+
+    private void openSelectedProblem() {
+        Problem problem = problemsList.getSelectedValue();
+        if (problem != null && problem.file() != null) openFileAtLine(problem.file(), problem.line());
+    }
+
+    private void openSelectedSearchResult() {
+        ProjectSearch.Match match = searchResults.getSelectedValue();
+        if (match != null) openFileAtLine(match.file(), match.line());
+    }
+
+    private void runSearch() {
+        if (!searchButton.isEnabled()) return;
+        String query = searchQuery.getText().trim();
+        if (query.isEmpty()) {
+            Toolkit.getDefaultToolkit().beep();
+            searchStatus.setText(t("Aranacak metin boş olamaz."));
+            return;
+        }
+        searchButton.setEnabled(false);
+        searchModel.clear();
+        updateSearchTab();
+        searchStatus.setText(t("Aranıyor..."));
+        SwingWorker<List<ProjectSearch.Match>, Void> worker = new SwingWorker<>() {
+            @Override protected List<ProjectSearch.Match> doInBackground() throws Exception {
+                return ProjectSearch.search(meta.rootDir(), query, searchCase.isSelected(), 500);
+            }
+            @Override protected void done() {
+                searchButton.setEnabled(true);
+                try {
+                    List<ProjectSearch.Match> found = get();
+                    found.forEach(searchModel::addElement);
+                    searchStatus.setText(t("%d sonuç", found.size())
+                            + (found.size() >= 500 ? t(" (ilk 500)") : "")
+                            + t(". Çift tıklayarak açın."));
+                    if (!found.isEmpty()) searchResults.setSelectedIndex(0);
+                } catch (Exception ex) {
+                    searchStatus.setText(t("Arama başarısız."));
+                }
+                updateSearchTab();
+            }
+        };
+        worker.execute();
+    }
+
+    private void replaceAll() {
+        if (!replaceAllButton.isEnabled()) return;
+        String query = searchQuery.getText().trim();
+        if (query.isEmpty()) {
+            Toolkit.getDefaultToolkit().beep();
+            searchStatus.setText(t("Aranacak metin boş olamaz."));
+            return;
+        }
+        String replacement = searchReplace.getText();
+        int choice = JOptionPane.showConfirmDialog(this,
+                t("'%s' metni '%s' ile değiştirilsin mi?\n\nYedekler .eluajs/recovery altına alınır.", query, replacement),
+                t("Tümünü Değiştir"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION) return;
+        saveCurrentSilently();
+        if (dirty) {
+            searchStatus.setText(t("Değiştirme iptal edildi: açık dosya kaydedilemedi."));
+            return;
+        }
+        searchButton.setEnabled(false);
+        replaceAllButton.setEnabled(false);
+        searchStatus.setText(t("Değiştiriliyor..."));
+        SwingWorker<ProjectSearch.ReplaceResult, Void> worker = new SwingWorker<>() {
+            @Override protected ProjectSearch.ReplaceResult doInBackground() throws Exception {
+                return ProjectSearch.replaceAll(meta.rootDir(), query, replacement, searchCase.isSelected());
+            }
+            @Override protected void done() {
+                searchButton.setEnabled(true);
+                replaceAllButton.setEnabled(true);
+                try {
+                    ProjectSearch.ReplaceResult result = get();
+                    appendConsole(t("Değiştirme tamamlandı: %d dosyada %d değişiklik.", result.files(), result.replacements()));
+                    for (String error : result.errors()) appendConsole(t("Değiştirilemedi: %s", error));
+                    if (openedFile != null) {
+                        Path open = openedFile.toAbsolutePath().normalize();
+                        boolean changed = result.changed().stream()
+                                .anyMatch(path -> path.toAbsolutePath().normalize().equals(open));
+                        if (changed) reloadOpenFile();
+                    }
+                    if (result.replacements() == 0) searchStatus.setText(t("Eşleşme bulunamadı."));
+                    else searchStatus.setText(t("%d dosyada %d değişiklik yapıldı.", result.files(), result.replacements()));
+                    runSearch();
+                } catch (Exception ex) {
+                    searchStatus.setText(t("Değiştirme hatası: %s", ex.getMessage()));
+                    JOptionPane.showMessageDialog(EditorFrame.this, ex.getMessage(), t("Değiştirme hatası"), JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void reloadOpenFile() {
+        EditorTab tab = activeTab;
+        if (tab == null || !Files.isRegularFile(tab.file)) return;
+        try {
+            int caret = tab.pane.getCaretPosition();
+            setTabText(tab, Files.readString(tab.file, StandardCharsets.UTF_8));
+            tab.pane.setCaretPosition(Math.min(caret, tab.pane.getDocument().getLength()));
+            dirty = false;
+            updateEditorStatus();
+        } catch (IOException ex) {
+            appendConsole(t("Dosya açılamadı: %s", ex.getMessage()));
+        }
+    }
+
+    private final class ProblemRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                boolean selected, boolean focus) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, false);
+            if (value instanceof Problem problem) {
+                String icon = switch (problem.severity()) {
+                    case ERROR -> "●";
+                    case WARNING -> "▲";
+                    default -> "i";
+                };
+                label.setText(icon + "  " + problem.location(meta.rootDir()) + "   " + problem.message());
+                label.setForeground(switch (problem.severity()) {
+                    case ERROR -> Theme.DANGER;
+                    case WARNING -> Theme.WARNING;
+                    default -> Theme.BLUE;
+                });
+                label.setToolTipText(problem.file() == null ? problem.message() : problem.file() + ":" + problem.line());
+            }
+            label.setBorder(new EmptyBorder(3, 6, 3, 6));
+            label.setBackground(selected ? Theme.SELECTION : Theme.CONSOLE);
+            label.setFont(Theme.mono(11));
+            return label;
+        }
+    }
+
+    private final class SearchRenderer extends DefaultListCellRenderer {
+        @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                boolean selected, boolean focus) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, false);
+            if (value instanceof ProjectSearch.Match match) {
+                String path;
+                try { path = meta.rootDir().relativize(match.file()).toString(); }
+                catch (Exception ex) { path = match.file().toString(); }
+                label.setText(path + ":" + match.line() + "   " + match.preview());
+                label.setToolTipText(match.file() + ":" + match.line());
+            }
+            label.setBorder(new EmptyBorder(3, 6, 3, 6));
+            label.setBackground(selected ? Theme.SELECTION : Theme.CONSOLE);
+            label.setForeground(Theme.TEXT);
+            label.setFont(Theme.mono(11));
+            return label;
+        }
+    }
+
+    private SyntaxEditorPane activeEditor() {
+        return editor;
+    }
+
+    private void syncActiveTab() {
+        if (tabsUpdating) return;
+        int index = editorTabs.getSelectedIndex();
+        EditorTab selected = index >= 0 && editorTabs.getComponentAt(index) instanceof EditorTab tab ? tab : null;
+        activeTab = selected;
+        if (selected == null) {
+            editor = emptyEditor;
+            openedFile = null;
+            dirty = false;
+            editorCards.show(editorHost, "empty");
+            breadcrumb.setText(t("Dosya seçin"));
+            currentFile.setText(t("Dosya seçin"));
+            tabDot.setText("");
+        } else {
+            editor = selected.pane;
+            openedFile = selected.file;
+            dirty = selected.dirty;
+            editorCards.show(editorHost, "tabs");
+            String rel = relative(selected.file);
+            breadcrumb.setText(rel.replace("/", "  ›  ").replace("\\", "  ›  "));
+            currentFile.setText(selected.file.getFileName().toString());
+            currentFile.setToolTipText(selected.file.toString());
+            tabDot.setText(selected.dirty ? "●" : "");
+        }
+        if (splitVisible) splitEditor.setDocument(editor.getDocument());
+        updateEditorStatus();
+        updateTabStyles();
+    }
+
+    private void updateTabStyles() {
+        for (EditorTab tab : openTabs.values()) {
+            boolean active = tab == activeTab;
+            if (tab.titleLabel != null) tab.titleLabel.setForeground(active ? Theme.TEXT : Theme.MUTED);
+            if (tab.closeButton != null) tab.closeButton.setForeground(active ? Theme.TEXT_SOFT : Theme.MUTED);
+            if (tab.header != null) tab.header.setBackground(active ? Theme.TAB_ACTIVE : Theme.TAB_BAR);
+        }
+        if (editorTabs != null) {
+            editorTabs.repaint();
+        }
+    }
+
+    private String relative(Path file) {
+        try { return meta.rootDir().relativize(file).toString(); }
+        catch (Exception ex) { return file.toString(); }
+    }
+
+    private EditorTab createTab(Path file, String text) {
+        EditorTab tab = new EditorTab(file, text);
+        tab.pane.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { markTabDirty(tab); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { markTabDirty(tab); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { }
+        });
+        tab.pane.addCaretListener(e -> {
+            if (tab == activeTab) updateEditorStatus();
+        });
+        return tab;
+    }
+
+    private void markTabDirty(EditorTab tab) {
+        if (tab == null || tab.suppressDirty) return;
+        tab.dirty = true;
+        updateTabTitle(tab);
+        if (tab == activeTab) {
+            dirty = true;
+            updateEditorStatus();
+        }
+    }
+
+    private void updateTabTitle(EditorTab tab) {
+        if (tab == null) return;
+        int index = editorTabs.indexOfComponent(tab);
+        if (index < 0) return;
+        String title = (tab.dirty ? "● " : "") + tab.file.getFileName();
+        editorTabs.setTitleAt(index, title);
+        if (tab.titleLabel != null) tab.titleLabel.setText(title);
+        if (tab.titleLabel != null) tab.titleLabel.setToolTipText(relative(tab.file));
+    }
+
+    private JComponent tabHeader(EditorTab tab) {
+        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        header.setOpaque(true);
+        header.setBackground(Theme.TAB_BAR);
+        header.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        tab.header = header;
+        tab.titleLabel = Ui.label("", 12, Font.PLAIN, Theme.MUTED);
+        tab.titleLabel.setBorder(new EmptyBorder(4, 2, 4, 0));
+        tab.titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        JButton close = new JButton("×");
+        tab.closeButton = close;
+        close.setFont(Theme.font(14, Font.BOLD));
+        close.setForeground(Theme.MUTED);
+        close.setOpaque(false);
+        close.setContentAreaFilled(false);
+        close.setBorderPainted(false);
+        close.setFocusPainted(false);
+        close.setPreferredSize(new Dimension(22, 22));
+        close.setMargin(new Insets(0, 0, 0, 0));
+        close.setToolTipText(t("Close"));
+        close.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        close.addActionListener(e -> closeTab(tab));
+        close.getModel().addChangeListener(e -> close.setForeground(
+                close.getModel().isRollover() ? Theme.DANGER : (tab == activeTab ? Theme.TEXT_SOFT : Theme.MUTED)));
+        header.add(tab.titleLabel);
+        header.add(close);
+        MouseAdapter menu = new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) editorTabs.setSelectedComponent(tab);
+                if (e.isPopupTrigger()) showTabMenu(tab, header, e.getX(), e.getY());
+            }
+            @Override public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) showTabMenu(tab, header, e.getX(), e.getY());
+            }
+        };
+        header.addMouseListener(menu);
+        tab.titleLabel.addMouseListener(menu);
+        String title = (tab.dirty ? "● " : "") + tab.file.getFileName();
+        tab.titleLabel.setText(title);
+        tab.titleLabel.setToolTipText(relative(tab.file));
+        return header;
+    }
+
+    private void maybeTabMenu(MouseEvent e) {
+        if (!e.isPopupTrigger()) return;
+        int index = editorTabs.indexAtLocation(e.getX(), e.getY());
+        if (index < 0 || !(editorTabs.getComponentAt(index) instanceof EditorTab tab)) return;
+        editorTabs.setSelectedComponent(tab);
+        showTabMenu(tab, editorTabs, e.getX(), e.getY());
+    }
+
+    private void showTabMenu(EditorTab tab, Component component, int x, int y) {
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem close = new JMenuItem(t("Kapat"));
+        close.addActionListener(e -> closeTab(tab));
+        JMenuItem closeOthers = new JMenuItem(t("Diğerlerini Kapat"));
+        closeOthers.addActionListener(e -> closeOtherTabs(tab));
+        JMenuItem closeAll = new JMenuItem(t("Tüm Sekmeleri Kapat"));
+        closeAll.addActionListener(e -> closeAllTabs());
+        JMenuItem copyPath = new JMenuItem(t("Dosya Yolunu Kopyala"));
+        copyPath.addActionListener(e -> {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(tab.file.toString()), null);
+        });
+        JMenuItem split = new JMenuItem(splitVisible ? t("Bölmeyi Kapat") : t("Yana Böl"));
+        split.addActionListener(e -> toggleSplit());
+        menu.add(split);
+        menu.addSeparator();
+        menu.add(close);
+        menu.add(closeOthers);
+        menu.add(closeAll);
+        menu.addSeparator();
+        menu.add(copyPath);
+        menu.show(component, x, y);
+    }
+
+    private boolean closeTab(EditorTab tab) {
+        if (tab == null || !openTabs.containsValue(tab)) return false;
+        editorTabs.setSelectedComponent(tab);
+        if (!confirmAbandonOrSave()) return false;
+        removeTab(tab, true);
+        return true;
+    }
+
+    private void closeTabSilently(EditorTab tab) {
+        removeTab(tab, false);
+    }
+
+    private void removeTab(EditorTab tab, boolean selectNeighbor) {
+        int index = editorTabs.indexOfComponent(tab);
+        if (index < 0) return;
+        openTabs.remove(tab.file);
+        tabsUpdating = true;
+        editorTabs.remove(tab);
+        tabsUpdating = false;
+        if (editorTabs.getTabCount() == 0) {
+            activeTab = null;
+            syncActiveTab();
+        } else if (selectNeighbor) {
+            editorTabs.setSelectedIndex(Math.min(index, editorTabs.getTabCount() - 1));
+            syncActiveTab();
+        } else {
+            syncActiveTab();
+        }
+    }
+
+    private void closeOtherTabs(EditorTab keep) {
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (tab == keep) continue;
+            if (!closeTab(tab)) break;
+        }
+        if (keep != null && openTabs.containsValue(keep)) editorTabs.setSelectedComponent(keep);
+    }
+
+    private void closeAllTabs() {
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (!closeTab(tab)) break;
+        }
+    }
+
+    private boolean confirmCloseAllTabs() {
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (!tab.dirty) continue;
+            editorTabs.setSelectedComponent(tab);
+            if (!confirmAbandonOrSave()) return false;
+        }
+        return true;
+    }
+
+    private void toggleSplit() {
+        if (splitVisible) {
+            splitVisible = false;
+            splitPanel.setVisible(false);
+            editorSplit.setRightComponent(null);
+        } else {
+            splitVisible = true;
+            splitEditor.setDocument(editor.getDocument());
+            splitPanel.setVisible(true);
+            editorSplit.setRightComponent(splitPanel);
+            editorSplit.setDividerLocation(0.5);
+        }
+        editorSplit.revalidate();
+        editorSplit.repaint();
+    }
+
+    private final class EditorTab extends JPanel {
+        private final Path file;
+        private final SyntaxEditorPane pane;
+        private final JScrollPane scroll;
+        private JLabel titleLabel;
+        private JButton closeButton;
+        private JPanel header;
+        private boolean dirty;
+        private boolean suppressDirty;
+
+        private EditorTab(Path file, String text) {
+            super(new BorderLayout());
+            this.file = file.toAbsolutePath().normalize();
+            this.pane = new SyntaxEditorPane();
+            this.pane.setFile(this.file, text);
+            this.scroll = Ui.scroll(pane);
+            scroll.setBorder(null);
+            scroll.getViewport().setBackground(Theme.EDITOR);
+            scroll.setRowHeaderView(new LineNumberView(pane));
+            if (scroll.getRowHeader() != null) scroll.getRowHeader().setBackground(Theme.EDITOR);
+            setBackground(Theme.EDITOR);
+            JPanel body = new JPanel(new BorderLayout());
+            body.setBackground(Theme.EDITOR);
+            JPanel crumb = new JPanel(new BorderLayout());
+            crumb.setBackground(Theme.EDITOR);
+            crumb.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                    new EmptyBorder(4, 14, 4, 12)));
+            crumb.add(Ui.label(relative(this.file), 10, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
+            body.add(crumb, BorderLayout.NORTH);
+            body.add(scroll, BorderLayout.CENTER);
+            add(body, BorderLayout.CENTER);
+        }
     }
 
     private JComponent pagesPanel() {
@@ -354,7 +1039,7 @@ public final class EditorFrame extends JFrame {
                 if (info != null && info.javaFile() != null) openFile(info.javaFile());
             }
         });
-        JScrollPane scroll = new JScrollPane(pagesList);
+        JScrollPane scroll = Ui.scroll(pagesList);
         scroll.setBorder(null);
         scroll.getViewport().setBackground(Theme.PANEL);
         panel.add(scroll, BorderLayout.CENTER);
@@ -415,38 +1100,52 @@ public final class EditorFrame extends JFrame {
 
     private void refreshAfterAiEdit() {
         reloadTree();
-        if (openedFile != null && !Files.isRegularFile(openedFile)) {
-            appendConsole(t("AI deleted the open file: %s", meta.rootDir().relativize(openedFile)));
-            openedFile = null;
-            editor.setText("");
-            dirty = false;
-            currentFile.setText(t("Dosya seçin"));
-            breadcrumb.setText("");
-            updateEditorStatus();
-            return;
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (!Files.isRegularFile(tab.file)) {
+                appendConsole(t("AI deleted the open file: %s", relative(tab.file)));
+                closeTabSilently(tab);
+                continue;
+            }
+            if (tab.dirty) {
+                appendConsole(t("AI updated project files. %s has unsaved changes, so it was not reloaded automatically.", relative(tab.file)));
+                continue;
+            }
+            try {
+                setTabText(tab, Files.readString(tab.file, StandardCharsets.UTF_8));
+                appendConsole(t("AI updated: %s", relative(tab.file)));
+            } catch (IOException ex) {
+                appendConsole(t("Could not reload the file after AI edits: %s", ex.getMessage()));
+            }
         }
-        if (openedFile == null) return;
-        if (dirty) {
-            appendConsole(t("AI updated project files. The open file has unsaved changes, so it was not reloaded automatically."));
-            return;
-        }
+        syncActiveTab();
+    }
+
+    private void setTabText(EditorTab tab, String text) {
+        tab.suppressDirty = true;
         try {
-            editor.setFile(openedFile, Files.readString(openedFile, StandardCharsets.UTF_8));
-            dirty = false;
-            updateEditorStatus();
-            appendConsole(t("AI updated: %s", meta.rootDir().relativize(openedFile)));
-        } catch (IOException ex) {
-            appendConsole(t("Could not reload the file after AI edits: %s", ex.getMessage()));
+            tab.pane.setFile(tab.file, text);
+        } finally {
+            tab.suppressDirty = false;
         }
+        tab.dirty = false;
+        updateTabTitle(tab);
+    }
+
+    private void openProjectSettings() {
+        if (!saveAllTabs()) return;
+        new ProjectSettingsDialog(this, meta.rootDir(), () -> {
+            appendConsole(t("Proje ayarları kaydedildi."));
+            reloadTree();
+        }).setVisible(true);
     }
 
     private void openSettings() {
-        saveCurrentSilently();
+        if (!saveAllTabs()) return;
         SettingsDialog dialog = new SettingsDialog(this);
         dialog.setVisible(true);
         aiPanel.reloadConfig();
         if (dialog.languageChanged()) {
-            saveCurrentSilently();
+            if (!saveAllTabs()) return;
             Ui.restartUi();
         }
     }
@@ -491,6 +1190,21 @@ public final class EditorFrame extends JFrame {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK), "aiAssistant");
         am.put("aiAssistant", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { toggleAiPanel(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SLASH, InputEvent.CTRL_DOWN_MASK), "splitEditor");
+        am.put("splitEditor", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { toggleSplit(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_W, InputEvent.CTRL_DOWN_MASK), "closeTab");
+        am.put("closeTab", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { closeTab(activeTab); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.CTRL_DOWN_MASK), "nextTab");
+        am.put("nextTab", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (editorTabs.getTabCount() == 0) return;
+                editorTabs.setSelectedIndex((editorTabs.getSelectedIndex() + 1) % editorTabs.getTabCount());
+            }
         });
     }
 
@@ -538,6 +1252,161 @@ public final class EditorFrame extends JFrame {
         return node;
     }
 
+    private Path treeTarget() {
+        TreePath selection = tree.getSelectionPath();
+        if (selection == null) return meta.rootDir();
+        if (!(selection.getLastPathComponent() instanceof DefaultMutableTreeNode node)) return meta.rootDir();
+        if (!(node.getUserObject() instanceof FileNode file)) return meta.rootDir();
+        return Files.isDirectory(file.path) ? file.path : file.path.getParent();
+    }
+
+    private Path treeSelectedPath() {
+        TreePath selection = tree.getSelectionPath();
+        if (selection == null) return null;
+        if (!(selection.getLastPathComponent() instanceof DefaultMutableTreeNode node)) return null;
+        if (!(node.getUserObject() instanceof FileNode file)) return null;
+        return file.path;
+    }
+
+    private void showTreeMenu(MouseEvent e) {
+        TreePath selection = tree.getPathForLocation(e.getX(), e.getY());
+        if (selection != null) tree.setSelectionPath(selection);
+        Path target = treeTarget();
+        Path selected = treeSelectedPath();
+        boolean canEdit = selected != null && !selected.equals(meta.rootDir());
+
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem newFile = new JMenuItem(t("Yeni Dosya"));
+        newFile.addActionListener(a -> newTreeFile(target));
+        JMenuItem newFolder = new JMenuItem(t("Yeni Klasör"));
+        newFolder.addActionListener(a -> newTreeFolder(target));
+        JMenuItem newLayout = new JMenuItem(t("Yeni XML Layout"));
+        newLayout.addActionListener(a -> newTreeLayout());
+        JMenuItem rename = new JMenuItem(t("Yeniden Adlandır"));
+        rename.setEnabled(canEdit);
+        rename.addActionListener(a -> renameTreePath(selected));
+        JMenuItem duplicate = new JMenuItem(t("Çoğalt"));
+        duplicate.setEnabled(canEdit);
+        duplicate.addActionListener(a -> duplicateTreePath(selected));
+        JMenuItem delete = new JMenuItem(t("Sil"));
+        delete.setEnabled(canEdit);
+        delete.addActionListener(a -> deleteTreePath(selected));
+        JMenuItem copyPath = new JMenuItem(t("Yolu Kopyala"));
+        copyPath.setEnabled(selected != null);
+        copyPath.addActionListener(a -> java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                .setContents(new java.awt.datatransfer.StringSelection(selected.toString()), null));
+        JMenuItem reveal = new JMenuItem(t("Klasörü Aç"));
+        reveal.setEnabled(selected != null);
+        reveal.addActionListener(a -> openInSystem(selected.getParent()));
+
+        menu.add(newFile);
+        menu.add(newFolder);
+        menu.add(newLayout);
+        menu.addSeparator();
+        menu.add(rename);
+        menu.add(duplicate);
+        menu.add(delete);
+        menu.addSeparator();
+        menu.add(copyPath);
+        menu.add(reveal);
+        menu.show(tree, e.getX(), e.getY());
+    }
+
+    private void newTreeFile(Path parent) {
+        String name = JOptionPane.showInputDialog(this, t("Dosya adı"), t("YeniDosya.txt"));
+        if (name == null || name.isBlank()) return;
+        try {
+            Path made = ProjectFileManager.createFile(meta.rootDir(), parent, name.trim());
+            reloadTree();
+            openFile(made);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Dosya oluşturulamadı"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void newTreeFolder(Path parent) {
+        String name = JOptionPane.showInputDialog(this, t("Klasör adı"), t("YeniKlasör"));
+        if (name == null || name.isBlank()) return;
+        try {
+            ProjectFileManager.createDirectory(meta.rootDir(), parent, name.trim());
+            reloadTree();
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Klasör oluşturulamadı"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void newTreeLayout() {
+        String name = JOptionPane.showInputDialog(this, t("Layout adı"), "activity_new");
+        if (name == null || name.isBlank()) return;
+        try {
+            Path made = ProjectFileManager.createLayout(meta.rootDir(), name.trim());
+            reloadTree();
+            openFile(made);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Layout oluşturulamadı"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void renameTreePath(Path path) {
+        if (path == null || !saveAllTabs()) return;
+        String name = JOptionPane.showInputDialog(this, t("Yeni ad"), path.getFileName().toString());
+        if (name == null || name.isBlank() || name.equals(path.getFileName().toString())) return;
+        try {
+            Path made = ProjectFileManager.rename(meta.rootDir(), path, name.trim());
+            closeTabsUnder(path);
+            reloadTree();
+            if (Files.isRegularFile(made)) openFile(made);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Yeniden adlandırılamadı"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void duplicateTreePath(Path path) {
+        if (path == null || !saveAllTabs()) return;
+        try {
+            Path made = ProjectFileManager.duplicate(meta.rootDir(), path);
+            reloadTree();
+            if (Files.isRegularFile(made)) openFile(made);
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Çoğaltılamadı"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void deleteTreePath(Path path) {
+        if (path == null) return;
+        int choice = JOptionPane.showConfirmDialog(this,
+                t("'%s' silinsin mi?", meta.rootDir().relativize(path)),
+                t("Sil"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION || !saveAllTabs()) return;
+        try {
+            ProjectFileManager.delete(meta.rootDir(), path);
+            closeTabsUnder(path);
+            reloadTree();
+        } catch (IOException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Silme hatası"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void closeTabsUnder(Path path) {
+        Path base = path.toAbsolutePath().normalize();
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (tab.file.equals(base) || tab.file.startsWith(base)) closeTabSilently(tab);
+        }
+    }
+
+    private void openInSystem(Path path) {
+        if (path == null) return;
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(path.toFile());
+            } else {
+                new ProcessBuilder("xdg-open", path.toString()).start();
+            }
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Klasör açılamadı"), JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
     private void treeSelection(TreeSelectionEvent e) {
         Object n = tree.getLastSelectedPathComponent();
         if (!(n instanceof DefaultMutableTreeNode dm) || !(dm.getUserObject() instanceof FileNode fn)) return;
@@ -545,63 +1414,87 @@ public final class EditorFrame extends JFrame {
     }
 
     private void openMainActivity() {
-        Path main = meta.rootDir().resolve("app/src/main/java")
-                .resolve(meta.packageName().replace('.', '/')).resolve("MainActivity.java");
-        if (Files.isRegularFile(main)) openFile(main);
+        Path main = ProjectLayout.mainSource(meta.rootDir());
+        if (main != null && Files.isRegularFile(main)) openFile(main);
     }
 
     private void openFile(Path p) {
         if (p == null || !Files.isRegularFile(p)) return;
-        if (openedFile != null && openedFile.equals(p)) return;
-        if (!confirmAbandonOrSave()) return;
+        Path file = p.toAbsolutePath().normalize();
+        EditorTab existing = openTabs.get(file);
+        if (existing != null) {
+            editorTabs.setSelectedComponent(existing);
+            return;
+        }
         try {
-            editor.setFile(p, Files.readString(p, StandardCharsets.UTF_8));
-            openedFile = p;
-            String rel = meta.rootDir().relativize(p).toString();
-            currentFile.setText(p.getFileName().toString());
-            currentFile.setToolTipText(p.toString());
-            breadcrumb.setText(rel.replace("/", "  ›  ").replace("\\", "  ›  "));
-            dirty = false;
-            updateEditorStatus();
+            String text = Files.readString(file, StandardCharsets.UTF_8);
+            EditorTab tab = createTab(file, text);
+            openTabs.put(file, tab);
+            tabsUpdating = true;
+            editorTabs.addTab(file.getFileName().toString(), tab);
+            editorTabs.setTabComponentAt(editorTabs.getTabCount() - 1, tabHeader(tab));
+            editorTabs.setSelectedComponent(tab);
+            tabsUpdating = false;
+            syncActiveTab();
         } catch (IOException ex) {
             appendConsole(t("Dosya açılamadı: %s", ex.getMessage()));
         }
     }
 
-    private void markDirty() {
-        dirty = true;
-        updateEditorStatus();
-    }
-
     private void saveCurrent() {
-        if (openedFile == null) return;
-        try {
-            FileUtil.recoveryCopy(meta.rootDir(), openedFile);
-            FileUtil.writeStringAtomic(openedFile, editor.getText());
-            dirty = false;
-            updateEditorStatus();
-            appendConsole(t("Kaydedildi: %s", meta.rootDir().relativize(openedFile)));
-        } catch (IOException ex) {
-            JOptionPane.showMessageDialog(this, ex.getMessage(), t("Kaydetme hatası"), JOptionPane.ERROR_MESSAGE);
-        }
+        saveTab(activeTab, false);
     }
 
     private void saveCurrentSilently() {
-        if (openedFile != null && dirty) saveCurrent();
+        if (activeTab != null && activeTab.dirty) saveTab(activeTab, true);
+    }
+
+    private boolean saveTab(EditorTab tab, boolean quiet) {
+        if (tab == null) return true;
+        try {
+            FileUtil.recoveryCopy(meta.rootDir(), tab.file);
+            FileUtil.writeStringAtomic(tab.file, tab.pane.getText());
+            tab.dirty = false;
+            if (tab == activeTab) dirty = false;
+            updateTabTitle(tab);
+            if (tab == activeTab) updateEditorStatus();
+            if (!quiet) appendConsole(t("Kaydedildi: %s", relative(tab.file)));
+            return true;
+        } catch (IOException ex) {
+            if (!quiet) JOptionPane.showMessageDialog(this, ex.getMessage(), t("Kaydetme hatası"), JOptionPane.ERROR_MESSAGE);
+            else appendConsole(t("Kaydedilemedi: %s", ex.getMessage()));
+            return false;
+        }
+    }
+
+    private boolean saveAllTabs() {
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (!tab.dirty) continue;
+            if (!saveTab(tab, false)) return false;
+        }
+        return true;
     }
 
     private boolean confirmAbandonOrSave() {
-        if (!dirty || openedFile == null) return true;
+        EditorTab tab = activeTab;
+        if (tab == null || !tab.dirty) return true;
         Object[] options = {t("Kaydet"), t("Değişiklikleri At"), t("İptal")};
         int choice = JOptionPane.showOptionDialog(this,
-                t("%s dosyasında kaydedilmemiş değişiklikler var.", meta.rootDir().relativize(openedFile)),
+                t("%s dosyasında kaydedilmemiş değişiklikler var.", relative(tab.file)),
                 t("Kaydedilmemiş değişiklik"), JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[0]);
-        if (choice == 0) { saveCurrent(); return !dirty; }
-        return choice == 1;
+        if (choice == 0) { saveCurrent(); return !tab.dirty; }
+        if (choice == 1) {
+            tab.dirty = false;
+            dirty = false;
+            updateTabTitle(tab);
+            updateEditorStatus();
+            return true;
+        }
+        return false;
     }
 
     private void confirmClose() {
-        if (!confirmAbandonOrSave()) return;
+        if (!confirmCloseAllTabs()) return;
         dispose();
     }
 
@@ -625,10 +1518,9 @@ public final class EditorFrame extends JFrame {
     }
 
     private void showProjectSearch() {
-        if (searchDialog == null || !searchDialog.isDisplayable()) {
-            searchDialog = new ProjectSearchDialog(this, meta.rootDir(), this::openFileAtLine);
-        }
-        searchDialog.focusQuery();
+        showBottomCard("search");
+        searchQuery.requestFocusInWindow();
+        searchQuery.selectAll();
     }
 
     private void newJavaClass() {
@@ -681,13 +1573,14 @@ public final class EditorFrame extends JFrame {
         String deleted = dialog.deletedClassName();
         if (deleted == null) return;
 
-        boolean deletedWasOpen = openedFile != null && openedFile.getFileName().toString().equals(deleted + ".java");
-        reloadTree();
-        if (deletedWasOpen) {
-            openedFile = null;
-            dirty = false;
-            openMainActivity();
+        EditorTab deletedTab = null;
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (tab.file.getFileName().toString().equals(deleted + ".java")) deletedTab = tab;
         }
+        boolean deletedWasActive = deletedTab != null && deletedTab == activeTab;
+        if (deletedTab != null) closeTabSilently(deletedTab);
+        reloadTree();
+        if (deletedWasActive && openTabs.isEmpty()) openMainActivity();
         appendConsole("\n" + t("--- Sayfa Silindi ---"));
         appendConsole(t("%s.java ve Manifest kaydı kaldırıldı.", deleted));
         appendConsole(t("Not: Bu sayfaya giden Intent kodları varsa onları koddan siz kaldırmalısınız."));
@@ -698,9 +1591,7 @@ public final class EditorFrame extends JFrame {
         ProjectValidator.Report r = ProjectValidator.validate(meta.rootDir());
         appendConsole("\n" + t("--- Doğrulama ---"));
         r.messages().forEach(this::appendConsole);
-        JOptionPane.showMessageDialog(this, String.join("\n", r.messages()),
-                r.ok() ? t("Doğrulama başarılı") : t("Doğrulama sorunları"),
-                r.ok() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+        showProblems(r.problems());
     }
 
     private void appendConsole(String s) {
@@ -751,8 +1642,13 @@ public final class EditorFrame extends JFrame {
         LineNumberView(JTextComponent text) {
             this.text = text;
             setFont(Theme.mono(12));
-            setForeground(new Color(91, 108, 126));
+            setForeground(Theme.MUTED);
             setBackground(Theme.EDITOR);
+            text.addPropertyChangeListener("font", ev -> {
+                setFont(Theme.mono(Math.max(9, text.getFont().getSize() - 2)));
+                revalidate();
+                repaint();
+            });
             setOpaque(true);
             text.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
                 public void insertUpdate(javax.swing.event.DocumentEvent e) { revalidate(); repaint(); }

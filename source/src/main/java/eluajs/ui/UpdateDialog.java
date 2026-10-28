@@ -85,7 +85,7 @@ public final class UpdateDialog extends JDialog {
         notes.setBorder(new EmptyBorder(8, 10, 8, 10));
         notes.setText(release.notes() == null || release.notes().isBlank() ? "—" : release.notes());
         notes.setCaretPosition(0);
-        JScrollPane scroll = new JScrollPane(notes);
+        JScrollPane scroll = Ui.scroll(notes);
         scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
         notesCard.add(scroll, BorderLayout.CENTER);
         root.add(notesCard, BorderLayout.CENTER);

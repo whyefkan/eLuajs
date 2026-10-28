@@ -85,7 +85,7 @@ public final class LibrariesDialog extends JDialog {
         list.setFont(Theme.font(12, Font.PLAIN));
         list.setFixedCellHeight(30);
         list.setBorder(new EmptyBorder(7, 8, 7, 8));
-        JScrollPane scroll = new JScrollPane(list);
+        JScrollPane scroll = Ui.scroll(list);
         scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         center.add(scroll, BorderLayout.CENTER);
 

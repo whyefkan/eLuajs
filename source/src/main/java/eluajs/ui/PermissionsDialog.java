@@ -69,7 +69,7 @@ public final class PermissionsDialog extends JDialog {
             row.add(detail, BorderLayout.CENTER);
             list.add(row);
         }
-        JScrollPane scroll = new JScrollPane(list);
+        JScrollPane scroll = Ui.scroll(list);
         scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
         scroll.getVerticalScrollBar().setUnitIncrement(18);
 

@@ -35,7 +35,7 @@ public final class AiClient {
         String model = cfg.activeModel();
         String key = cfg.activeKey();
         String base = cfg.activeBaseUrl();
-        if (key == null || key.isBlank()) {
+        if (provider.requiresKey() && (key == null || key.isBlank())) {
             throw new IllegalStateException(I18n.t("No API key configured. Open Settings and add one."));
         }
         if (base == null || base.isBlank()) {
@@ -106,9 +106,9 @@ public final class AiClient {
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(120))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + key)
                 .header("User-Agent", "eLuajs/1.3")
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+        if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
         if (provider == AiProvider.OPENROUTER) {
             b.header("HTTP-Referer", "https://github.com/whyefkan/eLuajs");
             b.header("X-Title", "eLuajs");

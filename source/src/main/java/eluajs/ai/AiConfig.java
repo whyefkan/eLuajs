@@ -48,6 +48,27 @@ public final class AiConfig {
         return value == null ? "" : value.trim();
     }
     public boolean hasKey(AiProvider provider) { return !key(provider).isEmpty(); }
+
+    public int tokenBudget() {
+        try {
+            int value = Integer.parseInt(props.getProperty("tokenBudget", "24000").trim());
+            return Math.max(4000, Math.min(200000, value));
+        } catch (Exception ex) {
+            return 24000;
+        }
+    }
+
+    public void setTokenBudget(int budget) {
+        props.setProperty("tokenBudget", String.valueOf(Math.max(4000, Math.min(200000, budget))));
+    }
+
+    public boolean tokenBudgetEnabled() {
+        return Boolean.parseBoolean(props.getProperty("tokenBudgetEnabled", "false"));
+    }
+
+    public void setTokenBudgetEnabled(boolean enabled) {
+        props.setProperty("tokenBudgetEnabled", enabled ? "true" : "false");
+    }
     public void setKey(AiProvider provider, String key) {
         if (key == null || key.isBlank()) props.remove("key." + provider.name());
         else props.setProperty("key." + provider.name(), key.trim());
