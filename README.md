@@ -36,9 +36,9 @@
 | --- | --- |
 | ![Hub](docs/hub-v13.png) | ![Editor](docs/editor-v13.png) |
 
-| AI assistant | Settings |
+| AI assistant |  |
 | --- | --- |
-| ![AI assistant](docs/ai-v13.png) | ![Settings](docs/settings-v13.png) |
+| ![AI assistant](docs/ai-v13.png) |  |
 
 ## Download
 
