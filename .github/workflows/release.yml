@@ -62,9 +62,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Install WiX Toolset
+      - name: Prepare WiX Toolset
         shell: powershell
-        run: choco install wixtoolset --version=3.14.1 -y --no-progress
+        run: |
+          $wixBin = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          if (-not (Test-Path "$wixBin\candle.exe")) {
+            choco install wixtoolset --version=3.14.1 -y --no-progress
+          }
+          if (-not (Test-Path "$wixBin\candle.exe")) {
+            throw "WiX Toolset (candle.exe) not found"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $wixBin
+          Get-ChildItem "$wixBin\candle.exe", "$wixBin\light.exe" | Select-Object Name, FullName
       - name: Build eLuajs.jar
         run: |
           cd source
