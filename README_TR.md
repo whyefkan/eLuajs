@@ -57,9 +57,9 @@ docked bir panel açılır; kod alanı ortada kalır.
   ve eLuajs yeniden başlatılır. Eski jar `eLuajs.jar.bak` olarak yedeklenir.
 - Release'e mutlaka `eLuajs.jar` adlı asset eklenmelidir. `.github/workflows/release.yml`
   `v*` etiketi push edildiğinde bunu otomatik üretir.
-- Sürüm numarası hem `source/build.sh` hem `source/src/main/java/eluajs/util/AppInfo.java`
-  içinde güncellenmelidir. Workflow jar manifest sürümünü etiketten alır; uygulama
-  sürümü manifestten okur.
+- Release workflow jar manifest sürümünü doğrudan etiketten alır; uygulama sürümünü
+  manifestten okur. Yerel geliştirme derlemeleri `source/build.sh` içindeki varsayılan
+  sürümü kullanır.
 
 Yayın adımları:
 
