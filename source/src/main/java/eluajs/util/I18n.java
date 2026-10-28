@@ -490,6 +490,10 @@ public final class I18n {
         en("Değiştirme hatası: %s", "Replace error: %s");
         en("Değiştirme hatası", "Replace error");
         en("Bul / Değiştir", "Find / Replace");
+        en("Kes", "Cut");
+        en("Kopyala", "Copy");
+        en("Yapıştır", "Paste");
+        en("Tümünü Seç", "Select All");
         en("Bul", "Find");
         en("Önceki", "Previous");
         en("Sonraki", "Next");
@@ -831,6 +835,10 @@ public final class I18n {
         tr("Update", "Güncelleme");
         tr("Settings", "Ayarlar");
         tr("eLuajs Settings", "eLuajs Ayarları");
+        tr("Kes", "Kes");
+        tr("Kopyala", "Kopyala");
+        tr("Yapıştır", "Yapıştır");
+        tr("Tümünü Seç", "Tümünü Seç");
         tr("eLuajs Settings", "eLuajs Ayarları");
         tr("Local provider — no API key required.", "Yerel sağlayıcı — API anahtarı gerekmez.");
         tr("Token budget", "Token bütçesi");

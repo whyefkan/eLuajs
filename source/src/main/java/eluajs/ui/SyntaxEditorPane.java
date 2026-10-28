@@ -8,6 +8,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
+import javax.swing.undo.UndoableEdit;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyAdapter;
@@ -146,7 +147,13 @@ public final class SyntaxEditorPane extends JTextPane {
             @Override public void changedUpdate(DocumentEvent e) { }
         });
         addCaretListener(e -> highlightMatchingBracket());
-        getDocument().addUndoableEditListener(undoManager);
+        getDocument().addUndoableEditListener(e -> {
+            UndoableEdit edit = e.getEdit();
+            if (edit instanceof AbstractDocument.DefaultDocumentEvent event
+                    && event.getType() != DocumentEvent.EventType.CHANGE) {
+                undoManager.addEdit(edit);
+            }
+        });
         installCompletionShortcut();
         installEditingShortcuts();
         setComponentPopupMenu(editorMenu());
@@ -212,6 +219,22 @@ public final class SyntaxEditorPane extends JTextPane {
                 if (undoManager.canRedo()) undoManager.redo();
             }
         });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "eluajs-copy");
+        am.put("eluajs-copy", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { copySelectionOrLine(false); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_X, InputEvent.CTRL_DOWN_MASK), "eluajs-cut");
+        am.put("eluajs-cut", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { copySelectionOrLine(true); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, InputEvent.CTRL_DOWN_MASK), "eluajs-paste");
+        am.put("eluajs-paste", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { pasteFromClipboard(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK), "eluajs-select-all");
+        am.put("eluajs-select-all", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { selectAll(); }
+        });
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK), "eluajs-find");
         am.put("eluajs-find", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { openFindDialog(false); }
@@ -245,6 +268,14 @@ public final class SyntaxEditorPane extends JTextPane {
 
     private JPopupMenu editorMenu() {
         JPopupMenu menu = new JPopupMenu();
+        JMenuItem cut = new JMenuItem(t("Kes"));
+        cut.addActionListener(e -> copySelectionOrLine(true));
+        JMenuItem copy = new JMenuItem(t("Kopyala"));
+        copy.addActionListener(e -> copySelectionOrLine(false));
+        JMenuItem paste = new JMenuItem(t("Yapıştır"));
+        paste.addActionListener(e -> pasteFromClipboard());
+        JMenuItem selectAll = new JMenuItem(t("Tümünü Seç"));
+        selectAll.addActionListener(e -> selectAll());
         JMenuItem find = new JMenuItem(t("Bul"));
         find.addActionListener(e -> openFindDialog(false));
         JMenuItem replace = new JMenuItem(t("Değiştir"));
@@ -259,6 +290,11 @@ public final class SyntaxEditorPane extends JTextPane {
         zoomOut.addActionListener(e -> setZoom(fontSize - 1));
         JMenuItem zoomReset = new JMenuItem(t("Yakınlaştırmayı Sıfırla"));
         zoomReset.addActionListener(e -> setZoom(14));
+        menu.add(cut);
+        menu.add(copy);
+        menu.add(paste);
+        menu.add(selectAll);
+        menu.addSeparator();
         menu.add(find);
         menu.add(replace);
         menu.addSeparator();
@@ -269,6 +305,43 @@ public final class SyntaxEditorPane extends JTextPane {
         menu.add(zoomOut);
         menu.add(zoomReset);
         return menu;
+    }
+
+    private void copySelectionOrLine(boolean cut) {
+        try {
+            String selected = getSelectedText();
+            String value;
+            int start;
+            int end;
+            if (selected != null && !selected.isEmpty()) {
+                value = selected;
+                start = getSelectionStart();
+                end = getSelectionEnd();
+            } else {
+                Element root = getDocument().getDefaultRootElement();
+                int caret = Math.min(getCaretPosition(), getDocument().getLength());
+                Element line = root.getElement(root.getElementIndex(caret));
+                start = line.getStartOffset();
+                end = Math.min(line.getEndOffset(), getDocument().getLength());
+                value = getDocument().getText(start, end - start);
+            }
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(value), null);
+            if (cut) {
+                getDocument().remove(start, end - start);
+                setCaretPosition(Math.min(start, getDocument().getLength()));
+            }
+        } catch (BadLocationException ignored) { }
+    }
+
+    private void pasteFromClipboard() {
+        try {
+            java.awt.datatransfer.Transferable data = Toolkit.getDefaultToolkit()
+                    .getSystemClipboard().getContents(this);
+            if (data != null && data.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+                replaceSelection((String) data.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor));
+            }
+        } catch (Exception ignored) { }
     }
 
     private void insertNewlineWithIndent() {

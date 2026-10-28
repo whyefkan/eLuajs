@@ -112,6 +112,13 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - Conversations are saved under `~/.eluajs/ai-chats` and restored per project. The history button lists previous chats.
 - Token usage and approximate cost are shown below the composer. The token budget is optional and off by default; local Ollama needs no API key.
 
+## Versioning
+
+- `1.5.0` was the large feature update (import, tabs, Git, build manager, six languages, and more).
+- Small fixes keep the same minor line: `1.5.1`, `1.5.2`, and so on.
+- The minor version (`1.5` → `1.6`) changes only for another large feature set.
+- There is no beta channel; every published GitHub release is stable.
+
 ## Updates
 
 - Updates always come from the official repository: **`whyefkan/eLuajs`**.
