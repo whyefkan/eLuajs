@@ -81,8 +81,8 @@ Open the AI panel with the activity bar icon or `Ctrl+Alt+A`.
 
 ## Updates
 
-- Set your repository in **Settings → Updates** (default: `whyefkan/eLuajs`).
-- Auto-check runs on startup and can be disabled.
+- Updates are always fetched from the official repository: **`whyefkan/eLuajs`**.
+- Auto-check runs on startup and can be disabled in **Settings → Updates**.
 - Releases must include an `eLuajs.jar` asset. The included GitHub Actions workflow builds the jar and portable zip when a `v*` tag is pushed.
 - The updater backs up the old jar as `eLuajs.jar.bak` before installing.
 

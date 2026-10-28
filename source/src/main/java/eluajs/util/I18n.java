@@ -524,6 +524,9 @@ public final class I18n {
         tr("Active provider", "Etkin sağlayıcı");
         tr("Connect a provider and choose a model.", "Bir sağlayıcı bağlayın ve model seçin.");
         tr("Keys are stored locally in ~/.eluajs/ai.properties and are never uploaded except to the provider you call.", "Anahtarlar yerel olarak ~/.eluajs/ai.properties içinde saklanır ve çağırdığınız sağlayıcı dışında hiçbir yere yüklenmez.");
+        tr("Official repository:", "Resmi depo:");
+        tr("Official repository", "Resmi depo");
+        tr("Updates always come from the official eLuajs repository.", "Güncellemeler her zaman resmi eLuajs deposundan gelir.");
         tr("Updates", "Güncellemeler");
         tr("Check GitHub releases and update eLuajs.", "GitHub sürümlerini kontrol edin ve eLuajs'ı güncelleyin.");
         tr("GitHub repository", "GitHub deposu");
@@ -582,6 +585,9 @@ public final class I18n {
         tr("Active provider", "Etkin sağlayıcı");
         tr("Connect a provider and choose a model.", "Bir sağlayıcı bağlayın ve model seçin.");
         tr("Keys are stored locally in ~/.eluajs/ai.properties and are never uploaded except to the provider you call.", "Anahtarlar yerel olarak ~/.eluajs/ai.properties içinde saklanır ve çağırdığınız sağlayıcı dışında hiçbir yere yüklenmez.");
+        tr("Official repository:", "Resmi depo:");
+        tr("Official repository", "Resmi depo");
+        tr("Updates always come from the official eLuajs repository.", "Güncellemeler her zaman resmi eLuajs deposundan gelir.");
         tr("Updates", "Güncellemeler");
         tr("Check GitHub releases and update eLuajs.", "GitHub sürümlerini kontrol edin ve eLuajs'ı güncelleyin.");
         tr("GitHub repository", "GitHub deposu");

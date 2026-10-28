@@ -20,15 +20,6 @@ public final class UpdateConfig {
         return cfg;
     }
 
-    public String repo() {
-        String value = props.getProperty("repo", "whyefkan/eLuajs");
-        return value == null ? "" : value.trim();
-    }
-
-    public void setRepo(String repo) {
-        props.setProperty("repo", repo == null ? "" : repo.trim());
-    }
-
     public boolean autoCheck() {
         return !"false".equalsIgnoreCase(props.getProperty("auto", "true"));
     }

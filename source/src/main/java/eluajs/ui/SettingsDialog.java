@@ -40,7 +40,6 @@ public final class SettingsDialog extends JDialog {
     private final JCheckBox showKey = new JCheckBox(t("Show"));
     private final JLabel status = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
     private final JLabel savedProviders = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
-    private final JTextField updateRepo = Ui.field();
     private final JCheckBox autoUpdate = new JCheckBox(t("Check for updates automatically on startup"));
     private final JLabel updateStatus = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
 
@@ -317,19 +316,22 @@ public final class SettingsDialog extends JDialog {
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setBorder(new EmptyBorder(16, 18, 16, 18));
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 330));
-        card.add(Ui.sectionLabel(t("GitHub repository")), BorderLayout.NORTH);
+        card.add(Ui.sectionLabel(t("Official repository")), BorderLayout.NORTH);
 
         JPanel form = new JPanel();
         form.setOpaque(false);
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
 
-        JLabel repoHint = Ui.label(t("Use owner/repo, for example whyefkan/eLuajs."), 10, Font.PLAIN, Theme.MUTED);
-        repoHint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        updateRepo.setAlignmentX(Component.LEFT_ALIGNMENT);
-        updateRepo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
-        form.add(repoHint);
-        form.add(Box.createVerticalStrut(5));
-        form.add(updateRepo);
+        JPanel official = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        official.setOpaque(false);
+        official.setAlignmentX(Component.LEFT_ALIGNMENT);
+        official.add(Ui.label(t("Official repository:"), 11, Font.PLAIN, Theme.MUTED));
+        official.add(Ui.badge(UpdateManager.OFFICIAL_REPO, Theme.ACCENT));
+        form.add(official);
+        form.add(Box.createVerticalStrut(6));
+        JLabel officialHint = Ui.label(t("Updates always come from the official eLuajs repository."), 10, Font.PLAIN, Theme.MUTED);
+        officialHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(officialHint);
         form.add(Box.createVerticalStrut(10));
 
         autoUpdate.setOpaque(false);
@@ -369,8 +371,6 @@ public final class SettingsDialog extends JDialog {
     }
 
     private void checkUpdates(JButton button) {
-        String repo = updateRepo.getText().trim();
-        updateConfig.setRepo(repo);
         updateConfig.setAutoCheck(autoUpdate.isSelected());
         updateConfig.save();
         button.setEnabled(false);
@@ -378,7 +378,7 @@ public final class SettingsDialog extends JDialog {
         updateStatus.setForeground(Theme.MUTED);
         SwingWorker<UpdateManager.Release, Void> worker = new SwingWorker<>() {
             @Override protected UpdateManager.Release doInBackground() throws Exception {
-                return UpdateManager.check(repo);
+                return UpdateManager.check();
             }
             @Override protected void done() {
                 button.setEnabled(true);
@@ -457,7 +457,6 @@ public final class SettingsDialog extends JDialog {
         loadProviderFields();
         loadingProvider = false;
         refreshSavedProviders();
-        updateRepo.setText(updateConfig.repo());
         autoUpdate.setSelected(updateConfig.autoCheck());
     }
 
@@ -528,7 +527,6 @@ public final class SettingsDialog extends JDialog {
         storeProviderFields();
         config.setProvider((AiProvider) providerCombo.getSelectedItem());
         config.save();
-        updateConfig.setRepo(updateRepo.getText());
         updateConfig.setAutoCheck(autoUpdate.isSelected());
         updateConfig.save();
         LangItem selected = (LangItem) languageCombo.getSelectedItem();

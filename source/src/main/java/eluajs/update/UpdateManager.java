@@ -20,6 +20,8 @@ import java.util.zip.ZipFile;
 
 /** GitHub Releases based updater. Downloads an eLuajs.jar asset and replaces the running jar. */
 public final class UpdateManager {
+    public static final String OFFICIAL_REPO = "whyefkan/eLuajs";
+
     public record Release(String tag, String version, String notes, String pageUrl,
                           String assetUrl, String assetName, boolean newer) { }
 
@@ -31,10 +33,10 @@ public final class UpdateManager {
 
     private UpdateManager() {}
 
-    public static Release check(String repo) throws Exception {
-        String cleaned = repo == null ? "" : repo.trim();
+    public static Release check() throws Exception {
+        String cleaned = OFFICIAL_REPO;
         if (!cleaned.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
-            throw new IOException("GitHub repository must look like owner/repo");
+            throw new IOException("Official repository is invalid");
         }
         HttpRequest request = HttpRequest.newBuilder(URI.create("https://api.github.com/repos/" + cleaned + "/releases/latest"))
                 .timeout(Duration.ofSeconds(25))
@@ -84,9 +86,9 @@ public final class UpdateManager {
     public static void checkOnStartup(Window owner, Consumer<Release> onUpdate) {
         if (!STARTUP_CHECKED.compareAndSet(false, true)) return;
         UpdateConfig cfg = UpdateConfig.load();
-        if (!cfg.autoCheck() || cfg.repo().isBlank()) return;
+        if (!cfg.autoCheck()) return;
         SwingWorker<Release, Void> worker = new SwingWorker<>() {
-            @Override protected Release doInBackground() throws Exception { return check(cfg.repo()); }
+            @Override protected Release doInBackground() throws Exception { return check(); }
             @Override protected void done() {
                 try {
                     Release release = get();
