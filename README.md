@@ -74,7 +74,11 @@ All links below always point to the **latest release**.
 </p>
 
 <p align="center">
-  <img src="docs/build-v153.png" alt="eLuajs build output window">
+  <img src="docs/build-v154.png" alt="eLuajs build output window">
+</p>
+
+<p align="center">
+  <img src="docs/output-v154.png" alt="eLuajs output chooser">
 </p>
 
 ## Features
@@ -117,7 +121,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - `1.5.0` was the large feature update (import, tabs, Git, build manager, six languages, and more).
 - `1.5.1` was the reliability/security patch.
 - `1.5.2` kept both APK and AAB actions visible in the build window.
-- `1.5.3` simplifies output selection into a single **Çıktı Al** action with an APK/AAB chooser.
+- `1.5.3` simplified output selection into a single **Çıktı Al** action.
+- `1.5.4` adds the custom output chooser window and makes AI continue after file-reading replies.
 - Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.

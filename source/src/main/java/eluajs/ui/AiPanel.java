@@ -48,7 +48,7 @@ public final class AiPanel extends JPanel {
 
             You edit the project by returning commands. The app applies them automatically.
             - READ: relative/path/File.java
-              (request up to 4 files; in that reply use READ lines only, no other text)
+              (request up to 4 files; a short explanation is allowed, the app ignores other text)
             - WRITE: relative/path/File.java
               ```java
               <COMPLETE file content>
@@ -62,11 +62,12 @@ public final class AiPanel extends JPanel {
             - Do not write outside the project or into build/, .gradle/, .git/, release/ or .eluajs/.
             - Do not modify unrelated files. Do not invent APIs.
             - After editing, reply with a short summary of what changed. Do not paste the code again.
+            - If the request needs several files, return all required WRITE/DELETE blocks in the same reply. Do not stop after describing what you will do.
             - If the user asks a question only, do not use WRITE or DELETE.
             - The app shows your changes for user approval before applying them.
             """;
 
-    private static final int MAX_FILE_ROUNDS = 3;
+    private static final int MAX_FILE_ROUNDS = 5;
     private static final int MAX_FILES_PER_REQUEST = 4;
     private static final int MAX_FILE_CHARS = 20_000;
     private static final int MAX_TOTAL_FILE_CHARS = 60_000;
@@ -644,6 +645,7 @@ public final class AiPanel extends JPanel {
                 : MAX_TOTAL_FILE_CHARS;
         long promptTokens = 0, completionTokens = 0, totalTokens = 0;
         double cost = 0;
+        boolean nudged = false;
         AiProvider usedProvider = config.provider();
         String usedModel = config.activeModel();
         for (int round = 0; ; round++) {
@@ -661,6 +663,13 @@ public final class AiPanel extends JPanel {
 
             List<String> requests = projectAccess ? parseReadRequests(answer) : List.of();
             if (requests.isEmpty()) {
+                if (allowFallback && !nudged && round < MAX_FILE_ROUNDS && looksLikeChangeRequest(lastPrompt)) {
+                    nudged = true;
+                    convo.add(AiMessage.assistant(answer));
+                    convo.add(AiMessage.user("Your previous reply only described the work. Apply the requested changes now. "
+                            + "Return all required WRITE or DELETE blocks with complete file contents."));
+                    continue;
+                }
                 return new LoopResult(answer, promptTokens, completionTokens, totalTokens, cost, false);
             }
             if (round >= MAX_FILE_ROUNDS) {
@@ -928,10 +937,14 @@ public final class AiPanel extends JPanel {
     private List<String> parseReadRequests(String answer) {
         if (answer == null) return List.of();
         List<String> out = new ArrayList<>();
+        boolean inFence = false;
         for (String raw : answer.split("\\R")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
-            if (!line.regionMatches(true, 0, "READ:", 0, 5)) return List.of();
+            if (line.startsWith("```")) { inFence = !inFence; continue; }
+            if (inFence) continue;
+            while (line.startsWith("- ") || line.startsWith("* ")) line = line.substring(2).trim();
+            if (!line.regionMatches(true, 0, "READ:", 0, 5)) continue;
             String path = line.substring(5).trim();
             if (path.startsWith("`") && path.endsWith("`") && path.length() > 1) path = path.substring(1, path.length() - 1).trim();
             if (!path.isBlank() && !out.contains(path)) out.add(path);
@@ -972,7 +985,8 @@ public final class AiPanel extends JPanel {
         if (text == null) return false;
         String s = text.toLowerCase(Locale.ROOT);
         String[] words = {"fix", "update", "change", "add", "remove", "delete", "rename", "refactor",
-                "implement", "create", "write", "düzelt", "güncelle", "değiştir", "ekle", "sil", "kaldır", "oluştur", "yaz"};
+                "implement", "create", "write", "theme", "page", "improve", "polish",
+                "düzelt", "güncelle", "değiştir", "ekle", "sil", "kaldır", "oluştur", "yaz", "güçlendir", "tema", "sayfa"};
         for (String word : words) if (s.contains(word)) return true;
         return false;
     }

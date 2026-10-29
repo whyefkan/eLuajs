@@ -10,13 +10,15 @@ import java.awt.*;
 final class BuildOutputDialog extends JDialog {
     BuildOutputDialog(Window owner, Runnable apk, Runnable aab) {
         super(owner, t("Çıktı Al"), ModalityType.APPLICATION_MODAL);
+        WindowChrome.install(this);
         setIconImage(Ui.appIcon());
-        setSize(560, 390);
-        setMinimumSize(new Dimension(500, 350));
+        setSize(600, 440);
+        setMinimumSize(new Dimension(540, 400));
         setLocationRelativeTo(owner);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         getContentPane().setBackground(Theme.BG);
         setLayout(new BorderLayout());
+        add(titleBar(), BorderLayout.NORTH);
 
         JPanel root = new JPanel(new BorderLayout(0, 14));
         root.setBackground(Theme.BG);
@@ -56,6 +58,24 @@ final class BuildOutputDialog extends JDialog {
 
         add(root, BorderLayout.CENTER);
         getRootPane().setDefaultButton(cancel);
+    }
+
+    private JComponent titleBar() {
+        JPanel bar = new JPanel(new BorderLayout(12, 0));
+        bar.setBackground(Theme.TITLE_BAR);
+        bar.setPreferredSize(new Dimension(1, 54));
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(0, 16, 0, 8)));
+        JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
+        brand.setOpaque(false);
+        brand.add(new JLabel(new ImageIcon(Ui.appIcon().getScaledInstance(24, 24, Image.SCALE_SMOOTH))));
+        brand.add(Ui.label(t("Çıktı Al"), 15, Font.BOLD, Theme.TEXT));
+        brand.add(Ui.badge("v" + HubFrame.VERSION, Theme.ACCENT));
+        bar.add(Ui.centerVertically(brand), BorderLayout.WEST);
+        bar.add(Ui.centerVertically(WindowChrome.controls(this)), BorderLayout.EAST);
+        WindowChrome.enableDrag(this, bar);
+        return bar;
     }
 
     private JButton choice(String icon, String title, String subtitle, boolean primary, Runnable action) {
