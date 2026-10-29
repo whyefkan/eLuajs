@@ -5,6 +5,7 @@ import eluajs.ai.AiConfig;
 import eluajs.ai.AiMessage;
 import eluajs.ai.AiPricing;
 import eluajs.ai.ChatStore;
+import eluajs.ai.AiAudit;
 import eluajs.ai.AiProvider;
 import eluajs.ai.AiResult;
 import eluajs.ai.ProjectContext;
@@ -17,6 +18,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,6 +94,8 @@ public final class AiPanel extends JPanel {
     private String lastPrompt = "";
     private String sessionId;
     private boolean busy;
+    private SwingWorker<LoopResult, ProgressEvent> activeWorker;
+    private String failedPrompt;
 
     private final JTextArea prompt = new JTextArea();
     private final JPanel conversation = new JPanel();
@@ -104,6 +108,8 @@ public final class AiPanel extends JPanel {
     private final JLabel usageLabel = Ui.label("", 9, Font.PLAIN, Theme.MUTED);
     private final WorkingIndicator working = new WorkingIndicator();
     private final JButton send = Ui.button("", true);
+    private final JButton stop = Ui.button(t("Durdur"), false);
+    private final JButton retry = Ui.button(t("Tekrar Dene"), false);
     private final JButton undoEdits = iconOnly("undo", t("Undo AI edits"));
     private long sessionPrompt;
     private long sessionCompletion;
@@ -220,8 +226,20 @@ public final class AiPanel extends JPanel {
         statusRow.setOpaque(false);
         statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
+        stop.setFont(Theme.font(9, Font.BOLD));
+        stop.setBorder(new EmptyBorder(2, 6, 2, 6));
+        stop.setForeground(Theme.DANGER);
+        stop.setVisible(false);
+        stop.addActionListener(e -> stopRequest());
+        retry.setFont(Theme.font(9, Font.BOLD));
+        retry.setBorder(new EmptyBorder(2, 6, 2, 6));
+        retry.setForeground(Theme.BLUE);
+        retry.setEnabled(false);
+        retry.addActionListener(e -> retryRequest());
         statusRow.add(working);
         statusRow.add(status);
+        statusRow.add(retry);
+        statusRow.add(stop);
         root.add(statusRow);
         root.add(Box.createVerticalStrut(5));
 
@@ -281,6 +299,22 @@ public final class AiPanel extends JPanel {
         button.setBorder(new EmptyBorder(5, 6, 5, 6));
         button.setToolTipText(tooltip);
         return button;
+    }
+
+    private void stopRequest() {
+        if (activeWorker != null) activeWorker.cancel(true);
+        busy = false;
+        working.stop();
+        stop.setVisible(false);
+        status.setText(t("Durduruldu"));
+        status.setForeground(Theme.MUTED);
+        updateSendState();
+    }
+
+    private void retryRequest() {
+        if (failedPrompt == null || failedPrompt.isBlank() || busy) return;
+        prompt.setText(failedPrompt);
+        send();
     }
 
     private void updateSendState() {
@@ -536,6 +570,9 @@ public final class AiPanel extends JPanel {
 
         chatCards.show(chatArea, "chat");
         lastPrompt = text;
+        failedPrompt = null;
+        retry.setEnabled(false);
+        stop.setVisible(true);
         addBubble(true, text, false);
         history.add(AiMessage.user(text));
         while (history.size() > MAX_HISTORY_MESSAGES) history.remove(0);
@@ -548,14 +585,22 @@ public final class AiPanel extends JPanel {
         status.setText(t("Thinking..."));
         status.setForeground(Theme.MUTED);
 
-        JComponent pending = addBubble(false, t("Thinking..."), false);
+        JTextArea streamArea = new JTextArea();
+        JComponent pending = addStreamingBubble(streamArea);
         List<AiMessage> messages = new ArrayList<>(history);
         boolean projectAccess = projectRoot != null && Files.isDirectory(projectRoot);
         String system = buildSystemPrompt(projectAccess);
 
         SwingWorker<LoopResult, ProgressEvent> worker = new SwingWorker<>() {
             @Override protected LoopResult doInBackground() throws Exception {
-                return runAiLoop(system, messages, projectAccess, looksLikeChangeRequest(lastPrompt), event -> publish(event));
+                return runAiLoop(system, messages, projectAccess, looksLikeChangeRequest(lastPrompt), event -> publish(event),
+                        () -> SwingUtilities.invokeLater(() -> streamArea.setText("")),
+                        chunk -> SwingUtilities.invokeLater(() -> {
+                            streamArea.append(chunk);
+                            streamArea.setCaretPosition(streamArea.getDocument().getLength());
+                            JScrollBar bar = conversationScroll.getVerticalScrollBar();
+                            bar.setValue(bar.getMaximum());
+                        }));
             }
             @Override protected void process(List<ProgressEvent> chunks) {
                 for (ProgressEvent event : chunks) {
@@ -581,9 +626,19 @@ public final class AiPanel extends JPanel {
             }
             @Override protected void done() {
                 conversation.remove(pending);
+                activeWorker = null;
+                stop.setVisible(false);
                 busy = false;
                 working.stop();
                 updateSendState();
+                if (isCancelled()) {
+                    status.setText(t("Durduruldu"));
+                    status.setForeground(Theme.MUTED);
+                    conversation.revalidate();
+                    conversation.repaint();
+                    scrollToBottom();
+                    return;
+                }
                 try {
                     LoopResult result = get();
                     addBubble(false, result.text(), false);
@@ -615,6 +670,8 @@ public final class AiPanel extends JPanel {
                         history.remove(history.size() - 1);
                     }
                     saveSession();
+                    failedPrompt = lastPrompt;
+                    retry.setEnabled(failedPrompt != null && !failedPrompt.isBlank());
                     addBubble(false, t("Request failed: %s", cause.getMessage()), true);
                     status.setText(t("Request failed: %s", cause.getMessage()));
                     status.setForeground(Theme.DANGER);
@@ -624,6 +681,7 @@ public final class AiPanel extends JPanel {
                 scrollToBottom();
             }
         };
+        activeWorker = worker;
         worker.execute();
         trimConversation();
         conversation.revalidate();
@@ -637,7 +695,8 @@ public final class AiPanel extends JPanel {
         }
     }
 
-    private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, boolean allowFallback, Consumer<ProgressEvent> progress) throws Exception {
+    private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, boolean allowFallback,
+                                 Consumer<ProgressEvent> progress, Runnable clearStream, Consumer<String> stream) throws Exception {
         List<AiMessage> convo = new ArrayList<>(initial);
         int totalRead = 0;
         int fileBudget = config.tokenBudgetEnabled()
@@ -649,7 +708,8 @@ public final class AiPanel extends JPanel {
         AiProvider usedProvider = config.provider();
         String usedModel = config.activeModel();
         for (int round = 0; ; round++) {
-            AiResult result = AiClient.completeDetailed(config, system, convo);
+            clearStream.run();
+            AiResult result = AiClient.completeStreaming(config, system, convo, stream);
             promptTokens += result.promptTokens();
             completionTokens += result.completionTokens();
             totalTokens += result.total();
@@ -675,7 +735,8 @@ public final class AiPanel extends JPanel {
             if (round >= MAX_FILE_ROUNDS) {
                 convo.add(AiMessage.assistant(answer));
                 convo.add(AiMessage.user("FILE READ LIMIT REACHED. Give the final answer now using the files already provided."));
-                AiResult last = AiClient.completeDetailed(config, system, convo);
+                clearStream.run();
+                AiResult last = AiClient.completeStreaming(config, system, convo, stream);
                 promptTokens += last.promptTokens();
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();
@@ -693,7 +754,8 @@ public final class AiPanel extends JPanel {
             convo.add(AiMessage.user("REQUESTED FILE CONTENTS:\n" + contents));
             if (totalRead >= fileBudget) {
                 convo.add(AiMessage.user("FILE READ LIMIT REACHED. Give the final answer now."));
-                AiResult last = AiClient.completeDetailed(config, system, convo);
+                clearStream.run();
+                AiResult last = AiClient.completeStreaming(config, system, convo, stream);
                 promptTokens += last.promptTokens();
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();
@@ -754,8 +816,14 @@ public final class AiPanel extends JPanel {
     }
 
     private ApplyResult applyEdits(List<FileWrite> writes, List<String> deletes, Consumer<ProgressEvent> progress) {
-        if (!approveChanges(writes, deletes)) {
-            return new ApplyResult(0, List.of(t("Changes rejected.")));
+        if (Thread.currentThread().isInterrupted()) {
+            return new ApplyResult(0, List.of(t("Request cancelled.")));
+        }
+        java.util.Set<String> approved = approveChanges(writes, deletes);
+        if (approved != null) {
+            if (approved.isEmpty()) return new ApplyResult(0, List.of(t("Changes rejected.")));
+            writes = writes.stream().filter(w -> approved.contains(w.path())).toList();
+            deletes = deletes.stream().filter(approved::contains).toList();
         }
         Map<Path, String> undo = new LinkedHashMap<>();
         List<String> errors = new ArrayList<>();
@@ -772,6 +840,7 @@ public final class AiPanel extends JPanel {
                     undo.putIfAbsent(target, null);
                 }
                 FileUtil.writeStringAtomic(target, write.content());
+                AiAudit.log(projectRoot, "WRITE", rel(target), "bytes=" + write.content().length());
                 changed++;
                 progress.accept(new ProgressEvent(EventKind.WRITE, List.of(target.getFileName().toString())));
             } catch (Exception ex) {
@@ -786,6 +855,7 @@ public final class AiPanel extends JPanel {
                 undo.putIfAbsent(target, Files.readString(target, StandardCharsets.UTF_8));
                 FileUtil.recoveryCopy(projectRoot, target);
                 Files.delete(target);
+                AiAudit.log(projectRoot, "DELETE", rel(target), "");
                 changed++;
                 progress.accept(new ProgressEvent(EventKind.DELETE, List.of(target.getFileName().toString())));
             } catch (Exception ex) {
@@ -796,8 +866,8 @@ public final class AiPanel extends JPanel {
         return new ApplyResult(changed, errors);
     }
 
-    private boolean approveChanges(List<FileWrite> writes, List<String> deletes) {
-        if (config.fullAccess()) return true;
+    private java.util.Set<String> approveChanges(List<FileWrite> writes, List<String> deletes) {
+        if (config.fullAccess()) return null;
         List<AiDiffDialog.Change> changes = new ArrayList<>();
         for (FileWrite write : writes) {
             Path target = ProjectContext.safeResolve(projectRoot, write.path());
@@ -815,16 +885,23 @@ public final class AiPanel extends JPanel {
                 changes.add(new AiDiffDialog.Change(delete, Files.readString(target, StandardCharsets.UTF_8), "", true));
             } catch (Exception ignored) { }
         }
-        if (changes.isEmpty()) return true;
+        if (changes.isEmpty()) return java.util.Set.of();
         Window owner = SwingUtilities.getWindowAncestor(this);
-        if (SwingUtilities.isEventDispatchThread()) return AiDiffDialog.approve(owner, changes);
-        final boolean[] approved = {false};
+        if (SwingUtilities.isEventDispatchThread()) return approvedPaths(AiDiffDialog.approve(owner, changes));
+        final java.util.concurrent.atomic.AtomicReference<java.util.List<AiDiffDialog.Change>> selected =
+                new java.util.concurrent.atomic.AtomicReference<>();
         try {
-            SwingUtilities.invokeAndWait(() -> approved[0] = AiDiffDialog.approve(owner, changes));
+            SwingUtilities.invokeAndWait(() -> selected.set(AiDiffDialog.approve(owner, changes)));
         } catch (Exception ex) {
-            return false;
+            return java.util.Set.of();
         }
-        return approved[0];
+        return approvedPaths(selected.get());
+    }
+
+    private static java.util.Set<String> approvedPaths(java.util.List<AiDiffDialog.Change> changes) {
+        java.util.Set<String> paths = new java.util.LinkedHashSet<>();
+        if (changes != null) for (AiDiffDialog.Change change : changes) paths.add(change.path());
+        return paths;
     }
 
     private List<FileWrite> parseWrites(String answer) {
@@ -929,9 +1006,22 @@ public final class AiPanel extends JPanel {
         } else {
             b.append("\n\nProject editing is disabled. Return code in fenced blocks and explain where to apply it.\n");
         }
+        String rules = projectRules();
+        if (!rules.isBlank()) b.append("\n\nPROJECT RULES:\n").append(rules);
         b.append("\n\nCURRENT FILE (").append(fileLabel == null ? "unknown" : fileLabel.get()).append("):\n");
         b.append(limit(currentFileText(), 20_000));
         return b.toString();
+    }
+
+    private String projectRules() {
+        if (projectRoot == null) return "";
+        for (String name : new String[]{"ELUAJS.md", "AGENTS.md"}) {
+            Path file = projectRoot.resolve(name);
+            if (!Files.isRegularFile(file)) continue;
+            try { return limit(Files.readString(file, StandardCharsets.UTF_8), 8_000); }
+            catch (IOException ignored) { }
+        }
+        return "";
     }
 
     private List<String> parseReadRequests(String answer) {
@@ -1029,6 +1119,33 @@ public final class AiPanel extends JPanel {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "eluajs-ai-send");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK), "eluajs-ai-send");
         am.put("eluajs-ai-send", sendAction);
+    }
+
+    private JComponent addStreamingBubble(JTextArea area) {
+        area.setEditable(false);
+        area.setOpaque(false);
+        area.setForeground(Theme.TEXT_SOFT);
+        area.setFont(Theme.font(12, Font.PLAIN));
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setBorder(new EmptyBorder(0, 0, 0, 0));
+        ChatBubble bubble = new ChatBubble(Theme.CONSOLE, Theme.BORDER_SOFT, 12);
+        bubble.setLayout(new BorderLayout());
+        bubble.setBorder(new EmptyBorder(8, 10, 8, 10));
+        bubble.add(area, BorderLayout.CENTER);
+        bubble.setMaximumSize(new Dimension(AI_TEXT_WIDTH, Integer.MAX_VALUE));
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        row.add(bubble);
+        conversation.add(row);
+        conversation.add(Box.createVerticalStrut(8));
+        trimConversation();
+        conversation.revalidate();
+        conversation.repaint();
+        scrollToBottom();
+        return row;
     }
 
     private JComponent addBubble(boolean user, String text, boolean error) {

@@ -7,6 +7,8 @@ import eluajs.project.ProjectSearch;
 import eluajs.project.Problem;
 import eluajs.project.ProjectLayout;
 import eluajs.project.ProjectFileManager;
+import eluajs.project.ProjectWatcher;
+import eluajs.git.GitManager;
 import eluajs.project.ProjectActivityManager;
 import eluajs.util.FileUtil;
 
@@ -24,6 +26,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.ArrayList;
@@ -32,6 +36,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class EditorFrame extends JFrame {
@@ -57,11 +62,13 @@ public final class EditorFrame extends JFrame {
     private EditorTab activeTab;
     private boolean tabsUpdating;
     private boolean splitVisible;
+    private EditorTab dragTab;
     private final JTextArea console = new JTextArea();
     private final JLabel currentFile = Ui.label(t("Dosya seçin"), 12, Font.PLAIN, Theme.TEXT_SOFT);
     private final JLabel breadcrumb = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
     private final JLabel tabDot = Ui.label("", 9, Font.PLAIN, Theme.ACCENT);
     private final JLabel editorStatus = Ui.label(t("Satır %d, Sütun %d", 1, 1), 10, Font.PLAIN, Theme.STATUS_TEXT);
+    private final JLabel branchStatus = Ui.statusLabel("Git");
     private final JLabel sidebarTitle = Ui.sectionLabel(t("DOSYALAR"));
     private final CardLayout sidebarCards = new CardLayout();
     private final JPanel sidebarBody = new JPanel(sidebarCards);
@@ -88,6 +95,10 @@ public final class EditorFrame extends JFrame {
     private Path openedFile;
     private boolean dirty;
     private final AtomicInteger treeReloadGeneration = new AtomicInteger();
+    private final Timer autosaveTimer = new Timer(5000, e -> autosaveDirtyTabs());
+    private final Timer sessionTimer = new Timer(5000, e -> saveSession());
+    private ProjectWatcher watcher;
+    private boolean restoringSession;
 
     public EditorFrame(ProjectMeta meta, Runnable onCloseRefresh) {
         super("eLuajs " + HubFrame.VERSION + " — " + meta.appName());
@@ -114,11 +125,21 @@ public final class EditorFrame extends JFrame {
         installShortcuts();
         ProjectMigrator.Result migration = ProjectMigrator.migrate(meta.rootDir());
         reloadTree();
-        openMainActivity();
+        if (!restoreSession()) openMainActivity();
+        autosaveTimer.start();
+        sessionTimer.start();
+        watcher = ProjectWatcher.start(meta.rootDir(), this::onExternalChange);
+        refreshBranchStatus();
         if (migration.changed()) appendConsole(migration.message());
         appendConsole(t("eLuajs %s hazır — hafif VS Code tarzı çalışma alanı. Kaydet, doğrula, debug APK veya imzalı Play Store AAB al.", HubFrame.VERSION));
         addWindowListener(new java.awt.event.WindowAdapter() {
-            @Override public void windowClosed(java.awt.event.WindowEvent e) { if (onCloseRefresh != null) onCloseRefresh.run(); }
+            @Override public void windowClosed(java.awt.event.WindowEvent e) {
+                saveSession();
+                autosaveTimer.stop();
+                sessionTimer.stop();
+                if (watcher != null) watcher.close();
+                if (onCloseRefresh != null) onCloseRefresh.run();
+            }
             @Override public void windowClosing(java.awt.event.WindowEvent e) { confirmClose(); }
         });
     }
@@ -162,16 +183,7 @@ public final class EditorFrame extends JFrame {
         split.setToolTipText(t("Yan yana önizleme (Ctrl+\\)"));
         split.addActionListener(e -> toggleSplit());
         JButton build = Ui.iconButton(t("Çıktı Al"), "run", true);
-        build.addActionListener(e -> {
-            saveCurrentSilently();
-            clearProblems();
-            BuildDialog dialog = new BuildDialog(this, meta.rootDir(), this::openFileAtLine, this::addProblem);
-            dialog.setBuildFix(log -> {
-                showAiPanel();
-                aiPanel.fixBuild(log);
-            });
-            dialog.setVisible(true);
-        });
+        build.addActionListener(e -> openBuild());
         primary.add(save);
         primary.add(validate);
         primary.add(split);
@@ -905,6 +917,24 @@ public final class EditorFrame extends JFrame {
         };
         header.addMouseListener(menu);
         tab.titleLabel.addMouseListener(menu);
+        MouseAdapter drag = new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) dragTab = tab;
+            }
+            @Override public void mouseReleased(MouseEvent e) {
+                if (!SwingUtilities.isLeftMouseButton(e) || dragTab == null) return;
+                EditorTab source = dragTab;
+                dragTab = null;
+                if (source == tab) {
+                    int from = editorTabs.indexOfComponent(source);
+                    Point point = SwingUtilities.convertPoint(header, e.getPoint(), editorTabs);
+                    int target = editorTabs.indexAtLocation(point.x, point.y);
+                    if (from >= 0 && target >= 0 && from != target) moveTab(from, target);
+                }
+            }
+        };
+        header.addMouseListener(drag);
+        tab.titleLabel.addMouseListener(drag);
         String title = (tab.dirty ? "● " : "") + tab.file.getFileName();
         tab.titleLabel.setText(title);
         tab.titleLabel.setToolTipText(relative(tab.file));
@@ -947,6 +977,26 @@ public final class EditorFrame extends JFrame {
         menu.show(component, x, y);
     }
 
+    private void moveTab(int from, int to) {
+        if (from < 0 || to < 0 || from == to) return;
+        Component content = editorTabs.getComponentAt(from);
+        String title = editorTabs.getTitleAt(from);
+        Component header = editorTabs.getTabComponentAt(from);
+        tabsUpdating = true;
+        try {
+            editorTabs.remove(from);
+            int target = to > from ? to - 1 : to;
+            target = Math.max(0, Math.min(target, editorTabs.getTabCount()));
+            editorTabs.insertTab(title, null, content, null, target);
+            if (header != null) editorTabs.setTabComponentAt(target, header);
+            editorTabs.setSelectedIndex(target);
+        } finally {
+            tabsUpdating = false;
+        }
+        syncActiveTab();
+        saveSession();
+    }
+
     private boolean closeTab(EditorTab tab) {
         if (tab == null || !openTabs.containsValue(tab)) return false;
         editorTabs.setSelectedComponent(tab);
@@ -975,6 +1025,7 @@ public final class EditorFrame extends JFrame {
         } else {
             syncActiveTab();
         }
+        if (!restoringSession) saveSession();
     }
 
     private void closeOtherTabs(EditorTab keep) {
@@ -1046,6 +1097,7 @@ public final class EditorFrame extends JFrame {
         } finally {
             splitSuppressDirty = false;
         }
+        if (!restoringSession) saveSession();
     }
 
     private void markSplitDirty() {
@@ -1091,6 +1143,7 @@ public final class EditorFrame extends JFrame {
         splitSaveButton.setEnabled(false);
         editorSplit.revalidate();
         editorSplit.repaint();
+        if (!restoringSession) saveSession();
     }
 
     private final class EditorTab extends JPanel {
@@ -1157,6 +1210,25 @@ public final class EditorFrame extends JFrame {
         return panel;
     }
 
+    private void refreshBranchStatus() {
+        SwingWorker<String, Void> worker = new SwingWorker<>() {
+            @Override protected String doInBackground() {
+                try {
+                    return GitManager.isRepository(meta.rootDir()) ? GitManager.branch(meta.rootDir()) : "";
+                } catch (Exception ex) {
+                    return "";
+                }
+            }
+            @Override protected void done() {
+                try {
+                    String branch = get();
+                    branchStatus.setText(branch == null || branch.isBlank() ? "Git" : "⎇ " + branch);
+                } catch (Exception ignored) { }
+            }
+        };
+        worker.execute();
+    }
+
     private JComponent statusBar() {
         JPanel bar = new JPanel(new BorderLayout(12, 0));
         bar.setBackground(Theme.STATUS_BG);
@@ -1166,6 +1238,7 @@ public final class EditorFrame extends JFrame {
         left.setOpaque(false);
         left.add(Ui.statusLabel(t("Java / Android")));
         left.add(Ui.statusLabel(meta.packageName()));
+        left.add(branchStatus);
         bar.add(left, BorderLayout.WEST);
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
@@ -1289,6 +1362,60 @@ public final class EditorFrame extends JFrame {
         }, this::openFile).setVisible(true);
     }
 
+    private void openBuild() {
+        saveCurrentSilently();
+        clearProblems();
+        BuildDialog dialog = new BuildDialog(this, meta.rootDir(), this::openFileAtLine, this::addProblem);
+        dialog.setBuildFix(log -> {
+            showAiPanel();
+            aiPanel.fixBuild(log);
+        });
+        dialog.setVisible(true);
+    }
+
+    private void quickOpen() {
+        new QuickOpenDialog(this, meta.rootDir(), this::openFile).setVisible(true);
+    }
+
+    private void goToLine() {
+        if (activeTab == null) return;
+        String value = JOptionPane.showInputDialog(this, t("Satır numarası"), t("Satıra Git"), JOptionPane.PLAIN_MESSAGE);
+        if (value == null || value.isBlank()) return;
+        try {
+            int target = Math.max(1, Integer.parseInt(value.trim()));
+            Element root = editor.getDocument().getDefaultRootElement();
+            int index = Math.min(target - 1, Math.max(0, root.getElementCount() - 1));
+            Element line = root.getElement(index);
+            editor.setCaretPosition(Math.min(line.getStartOffset(), editor.getDocument().getLength()));
+            editor.scrollRectToVisible(editor.modelToView2D(editor.getCaretPosition()).getBounds());
+            editor.requestFocusInWindow();
+        } catch (Exception ex) {
+            Toolkit.getDefaultToolkit().beep();
+        }
+    }
+
+    private void commandPalette() {
+        java.util.List<CommandPaletteDialog.Command> commands = new java.util.ArrayList<>();
+        commands.add(new CommandPaletteDialog.Command(t("Hızlı Dosya Aç"), "Ctrl+P", this::quickOpen));
+        commands.add(new CommandPaletteDialog.Command(t("Satıra Git"), "Ctrl+G", this::goToLine));
+        commands.add(new CommandPaletteDialog.Command(t("Projede ara"), "Ctrl+Shift+F", this::showProjectSearch));
+        commands.add(new CommandPaletteDialog.Command(t("Bu dosyada ara"), "Ctrl+F", () -> {
+            javax.swing.Action action = editor.getActionMap().get("eluajs-find");
+            if (action != null) action.actionPerformed(new java.awt.event.ActionEvent(editor, 0, "find"));
+        }));
+        commands.add(new CommandPaletteDialog.Command(t("Çıktı Al"), "", this::openBuild));
+        commands.add(new CommandPaletteDialog.Command(t("Git"), "", () -> new GitDialog(this, meta.rootDir()).setVisible(true)));
+        commands.add(new CommandPaletteDialog.Command(t("Proje Ayarları"), "", this::openProjectSettings));
+        commands.add(new CommandPaletteDialog.Command(t("Ayarlar"), "", this::openSettings));
+        commands.add(new CommandPaletteDialog.Command(t("Tümünü Kaydet"), "Ctrl+S", () -> { if (saveAllTabs()) appendConsole(t("Tüm dosyalar kaydedildi.")); }));
+        commands.add(new CommandPaletteDialog.Command(t("Yeni Dosya"), "", () -> newTreeFile(treeTarget())));
+        commands.add(new CommandPaletteDialog.Command(t("Yeni Java sınıfı"), "Ctrl+Shift+N", this::newJavaClass));
+        commands.add(new CommandPaletteDialog.Command(t("Bölmeyi Aç/Kapat"), "Ctrl+\\", this::toggleSplit));
+        commands.add(new CommandPaletteDialog.Command(t("Dosya ağacını yenile"), "", this::reloadTree));
+        commands.add(new CommandPaletteDialog.Command(t("Yapay Zeka Asistanı"), "Ctrl+Alt+A", this::toggleAiPanel));
+        new CommandPaletteDialog(this, commands).setVisible(true);
+    }
+
     private void installShortcuts() {
         JRootPane root = getRootPane();
         InputMap im = root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
@@ -1308,6 +1435,19 @@ public final class EditorFrame extends JFrame {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_A, InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK), "aiAssistant");
         am.put("aiAssistant", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { toggleAiPanel(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_P, InputEvent.CTRL_DOWN_MASK), "quickOpen");
+        am.put("quickOpen", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { quickOpen(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_G, InputEvent.CTRL_DOWN_MASK), "goToLine");
+        am.put("goToLine", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { goToLine(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_F1, 0), "commandPalette");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_P, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK), "commandPalette");
+        am.put("commandPalette", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { commandPalette(); }
         });
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_BACK_SLASH, InputEvent.CTRL_DOWN_MASK), "splitEditor");
         am.put("splitEditor", new AbstractAction() {
@@ -1540,6 +1680,126 @@ public final class EditorFrame extends JFrame {
         if (main != null && Files.isRegularFile(main)) openFile(main);
     }
 
+    private void saveSession() {
+        if (restoringSession) return;
+        Properties p = new Properties();
+        List<EditorTab> tabs = new ArrayList<>(openTabs.values());
+        p.setProperty("count", String.valueOf(tabs.size()));
+        p.setProperty("active", String.valueOf(editorTabs.getSelectedIndex()));
+        for (int i = 0; i < tabs.size(); i++) {
+            EditorTab tab = tabs.get(i);
+            p.setProperty("file." + i, relative(tab.file));
+            p.setProperty("caret." + i, String.valueOf(tab.pane.getCaretPosition()));
+        }
+        p.setProperty("splitVisible", String.valueOf(splitVisible));
+        if (splitFile != null) {
+            p.setProperty("splitFile", relative(splitFile));
+            p.setProperty("splitCaret", String.valueOf(splitEditor.getCaretPosition()));
+        }
+        try {
+            Path file = meta.rootDir().resolve(".eluajs/session.properties");
+            Files.createDirectories(file.getParent());
+            java.io.StringWriter writer = new java.io.StringWriter();
+            p.store(writer, "eLuajs editor session");
+            FileUtil.writeStringAtomic(file, writer.toString());
+        } catch (IOException ignored) { }
+    }
+
+    private boolean restoreSession() {
+        Path file = meta.rootDir().resolve(".eluajs/session.properties");
+        if (!Files.isRegularFile(file)) return false;
+        Properties p = new Properties();
+        try (InputStream in = Files.newInputStream(file)) { p.load(in); }
+        catch (IOException ex) { return false; }
+        int count;
+        try { count = Math.max(0, Math.min(24, Integer.parseInt(p.getProperty("count", "0")))); }
+        catch (NumberFormatException ex) { return false; }
+        restoringSession = true;
+        int opened = 0;
+        try {
+            for (int i = 0; i < count; i++) {
+                String rel = p.getProperty("file." + i);
+                if (rel == null || rel.isBlank()) continue;
+                Path path = meta.rootDir().resolve(rel).normalize();
+                if (!FileUtil.isSafeProjectPath(meta.rootDir(), path) || !Files.isRegularFile(path)) continue;
+                openFile(path);
+                EditorTab tab = openTabs.get(path);
+                if (tab != null) {
+                    try { tab.pane.setCaretPosition(Math.max(0, Math.min(Integer.parseInt(p.getProperty("caret." + i, "0")), tab.pane.getDocument().getLength()))); }
+                    catch (Exception ignored) { }
+                    opened++;
+                }
+            }
+            try {
+                int active = Integer.parseInt(p.getProperty("active", "-1"));
+                if (active >= 0 && active < editorTabs.getTabCount()) editorTabs.setSelectedIndex(active);
+            } catch (Exception ignored) { }
+            if (Boolean.parseBoolean(p.getProperty("splitVisible", "false"))) {
+                String split = p.getProperty("splitFile");
+                if (split != null && !split.isBlank()) {
+                    Path path = meta.rootDir().resolve(split).normalize();
+                    if (FileUtil.isSafeProjectPath(meta.rootDir(), path) && Files.isRegularFile(path)) {
+                        openSplitFile(path);
+                        try { splitEditor.setCaretPosition(Math.max(0, Math.min(Integer.parseInt(p.getProperty("splitCaret", "0")), splitEditor.getDocument().getLength()))); }
+                        catch (Exception ignored) { }
+                    }
+                }
+            }
+        } finally {
+            restoringSession = false;
+        }
+        return opened > 0;
+    }
+
+    private void autosaveDirtyTabs() {
+        if (restoringSession) return;
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (tab.dirty) saveTab(tab, true);
+        }
+        if (splitDirty && splitFile != null) saveSplitSilently();
+    }
+
+    private void saveSplitSilently() {
+        if (splitFile == null) return;
+        try {
+            FileUtil.recoveryCopy(meta.rootDir(), splitFile);
+            FileUtil.writeStringAtomic(splitFile, splitEditor.getText());
+            splitDirty = false;
+            splitTitle.setText(relative(splitFile));
+            splitSaveButton.setEnabled(false);
+        } catch (IOException ex) {
+            appendConsole(t("Kaydedilemedi: %s", ex.getMessage()));
+        }
+    }
+
+    private void onExternalChange() {
+        reloadTree();
+        for (EditorTab tab : new ArrayList<>(openTabs.values())) {
+            if (!Files.isRegularFile(tab.file)) {
+                if (!tab.dirty) closeTabSilently(tab);
+                continue;
+            }
+            if (tab.dirty) continue;
+            try {
+                int caret = tab.pane.getCaretPosition();
+                setTabText(tab, Files.readString(tab.file, StandardCharsets.UTF_8));
+                tab.pane.setCaretPosition(Math.min(caret, tab.pane.getDocument().getLength()));
+            } catch (IOException ex) {
+                appendConsole(t("Dosya açılamadı: %s", ex.getMessage()));
+            }
+        }
+        if (splitFile != null && Files.isRegularFile(splitFile) && !splitDirty) {
+            try {
+                int caret = splitEditor.getCaretPosition();
+                splitSuppressDirty = true;
+                splitEditor.setFile(splitFile, Files.readString(splitFile, StandardCharsets.UTF_8));
+                splitSuppressDirty = false;
+                splitEditor.setCaretPosition(Math.min(caret, splitEditor.getDocument().getLength()));
+            } catch (IOException ignored) { }
+        }
+        syncActiveTab();
+    }
+
     private void openFile(Path p) {
         if (p == null || !Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)
                 || !FileUtil.isSafeProjectPath(meta.rootDir(), p)) return;
@@ -1559,6 +1819,7 @@ public final class EditorFrame extends JFrame {
             editorTabs.setSelectedComponent(tab);
             tabsUpdating = false;
             syncActiveTab();
+            if (!restoringSession) saveSession();
         } catch (IOException ex) {
             appendConsole(t("Dosya açılamadı: %s", ex.getMessage()));
         }
@@ -1619,6 +1880,7 @@ public final class EditorFrame extends JFrame {
     private void confirmClose() {
         if (!confirmCloseAllTabs()) return;
         if (!confirmSplitClose()) return;
+        saveSession();
         dispose();
     }
 

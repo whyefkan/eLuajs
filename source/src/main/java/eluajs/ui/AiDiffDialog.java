@@ -15,7 +15,7 @@ final class AiDiffDialog extends JDialog {
     private final DefaultListModel<Change> model = new DefaultListModel<>();
     private final JList<Change> files = new JList<>(model);
     private final JTextArea diff = new JTextArea();
-    private boolean approved;
+    private List<Change> approved = List.of();
 
     private AiDiffDialog(Window owner, List<Change> changes) {
         super(owner, t("AI changes"), ModalityType.APPLICATION_MODAL);
@@ -34,7 +34,7 @@ final class AiDiffDialog extends JDialog {
 
         JPanel head = new JPanel(new BorderLayout());
         head.setOpaque(false);
-        head.add(Ui.label(t("AI değişiklikleri uygulanmadan önce gösterilir."), 12, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
+        head.add(Ui.label(t("AI değişiklikleri uygulanmadan önce gösterilir. Ctrl/Shift ile dosya seçin."), 11, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
         JLabel count = Ui.badge(t("%d dosya", changes.size()), Theme.ACCENT);
         head.add(count, BorderLayout.EAST);
         content.add(head, BorderLayout.NORTH);
@@ -61,6 +61,7 @@ final class AiDiffDialog extends JDialog {
                 return label;
             }
         });
+        files.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         files.addListSelectionListener(e -> showSelected());
         JScrollPane filesScroll = Ui.scroll(files);
         filesScroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
@@ -81,18 +82,26 @@ final class AiDiffDialog extends JDialog {
         actions.setOpaque(false);
         JButton reject = Ui.button(t("Reddet"), false);
         reject.addActionListener(e -> dispose());
-        JButton apply = Ui.button(t("Değişiklikleri Uygula"), true);
-        apply.addActionListener(e -> { approved = true; dispose(); });
+        JButton apply = Ui.button(t("Seçilenleri Uygula"), true);
+        apply.addActionListener(e -> {
+            List<Change> selected = files.getSelectedValuesList();
+            if (selected.isEmpty()) {
+                Toolkit.getDefaultToolkit().beep();
+                return;
+            }
+            approved = selected;
+            dispose();
+        });
         actions.add(reject);
         actions.add(apply);
         content.add(actions, BorderLayout.SOUTH);
         add(content, BorderLayout.CENTER);
         getRootPane().setDefaultButton(apply);
-        if (!model.isEmpty()) files.setSelectedIndex(0);
+        if (!model.isEmpty()) files.setSelectionInterval(0, model.size() - 1);
     }
 
-    static boolean approve(Window owner, List<Change> changes) {
-        if (changes == null || changes.isEmpty()) return true;
+    static List<Change> approve(Window owner, List<Change> changes) {
+        if (changes == null || changes.isEmpty()) return List.of();
         AiDiffDialog dialog = new AiDiffDialog(owner, changes);
         dialog.setVisible(true);
         return dialog.approved;

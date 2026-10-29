@@ -36,7 +36,7 @@ public final class ChatStore {
             }
         } catch (IOException ignored) { }
         out.sort((a, b) -> Long.compare(b.updatedAt(), a.updatedAt()));
-        return out;
+        return out.size() <= 50 ? out : out.subList(0, 50);
     }
 
     public static Session latest(Path projectRoot) {

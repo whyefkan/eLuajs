@@ -2,6 +2,7 @@ package eluajs.ui;
 
 import eluajs.android.BuildIssueParser;
 import eluajs.android.ToolchainManager;
+import eluajs.android.ProcessRunner;
 import eluajs.android.ReleaseSigningConfig;
 import eluajs.project.ProjectReleaseManager;
 import eluajs.project.Problem;
@@ -34,6 +35,10 @@ public final class BuildDialog extends JDialog {
     private final JCheckBox license = new JCheckBox(t("Android SDK lisans koşullarını kabul ediyorum"));
     private final JButton prepare = Ui.button(t("Araçları Hazırla"), false);
     private final JButton output = Ui.button("⤓  " + t("Çıktı Al"), true);
+    private final JButton cancel = Ui.dangerButton(t("Durdur"));
+    private final JButton retry = Ui.button(t("Tekrar Dene"), false);
+    private final JCheckBox cleanBuild = new JCheckBox(t("Temiz derleme"));
+    private final JCheckBox offlineBuild = new JCheckBox(t("Çevrimdışı"));
     private final JButton openApk = Ui.button(t("Çıktı Klasörünü Aç"), false);
     private final JButton adbInstall = Ui.button(t("ADB ile Yükle"), false);
     private final JButton bumpVersion = Ui.button(t("Sürüm +1"), false);
@@ -45,6 +50,8 @@ public final class BuildDialog extends JDialog {
     private final JProgressBar progress = new JProgressBar();
     private Path lastApk;
     private Path lastOutput;
+    private Runnable retryAction;
+    private SwingWorker<?, ?> activeWorker;
     private BuildIssueParser.Issue lastIssue;
     private final ConcurrentLinkedQueue<String> pendingLog = new ConcurrentLinkedQueue<>();
     private final Timer logFlushTimer = new Timer(60, e -> flushLog());
@@ -117,7 +124,18 @@ public final class BuildDialog extends JDialog {
         JLabel subtitle = Ui.label(t("Debug APK test içindir. Play Store AAB ise upload keystore ile imzalı release çıktısı üretir."), 12, Font.PLAIN, Theme.MUTED);
         subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(subtitle);
-        top.add(Box.createVerticalStrut(15));
+        JPanel buildOptions = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
+        buildOptions.setOpaque(false);
+        buildOptions.setAlignmentX(Component.LEFT_ALIGNMENT);
+        for (JCheckBox box : new JCheckBox[]{cleanBuild, offlineBuild}) {
+            box.setOpaque(false);
+            box.setForeground(Theme.MUTED);
+            box.setFont(Theme.font(10, Font.PLAIN));
+            box.setFocusPainted(false);
+            buildOptions.add(box);
+        }
+        top.add(buildOptions);
+        top.add(Box.createVerticalStrut(10));
 
         JPanel statusCard = Ui.card(new BorderLayout(0, 8));
         statusCard.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -179,8 +197,13 @@ public final class BuildDialog extends JDialog {
         bumpVersion.setFont(Theme.font(10, Font.BOLD));
         bumpVersion.setBorder(new EmptyBorder(4, 8, 4, 8));
         bumpVersion.addActionListener(e -> incrementVersion());
+        JButton devices = Ui.button(t("Cihazlar"), false);
+        devices.setFont(Theme.font(10, Font.BOLD));
+        devices.setBorder(new EmptyBorder(4, 8, 4, 8));
+        devices.addActionListener(e -> new DeviceDialog(this, projectRoot, lastApk).setVisible(true));
         logTools.add(artifacts);
         logTools.add(bumpVersion);
+        logTools.add(devices);
         aiFix.setFont(Theme.font(10, Font.BOLD));
         aiFix.setBorder(new EmptyBorder(4, 8, 4, 8));
         logTools.add(aiFix);
@@ -229,10 +252,16 @@ public final class BuildDialog extends JDialog {
                 buildFix.accept(lastFailureLog);
             }
         });
+        cancel.setEnabled(false);
+        cancel.addActionListener(e -> cancelBuild());
+        retry.setEnabled(false);
+        retry.addActionListener(e -> { if (retryAction != null) retryAction.run(); });
         secondaryActions.add(goIssue);
         secondaryActions.add(prepare);
         secondaryActions.add(openApk);
         secondaryActions.add(adbInstall);
+        primaryActions.add(retry);
+        primaryActions.add(cancel);
         primaryActions.add(output);
         actions.add(secondaryActions, BorderLayout.WEST);
         actions.add(primaryActions, BorderLayout.EAST);
@@ -333,7 +362,7 @@ public final class BuildDialog extends JDialog {
                     t("Lisans onayı gerekli"), JOptionPane.WARNING_MESSAGE);
             return;
         }
-        runTask(t("Araçlar hazırlanıyor"), () -> {
+        runTask(t("Araçlar hazırlanıyor"), null, () -> {
             ToolchainManager.ensureGradle(this::appendLog);
             if (!ToolchainManager.sdkReady()) ToolchainManager.prepareAndroidSdk(true, this::appendLog);
             return null;
@@ -356,10 +385,10 @@ public final class BuildDialog extends JDialog {
 
         lastIssue = null;
         goIssue.setEnabled(false);
-        runTask(t("APK derleniyor"), () -> {
+        runTask(t("APK derleniyor"), this::buildApk, () -> {
             ToolchainManager.ensureGradle(this::appendLog);
             if (!ToolchainManager.sdkReady()) ToolchainManager.prepareAndroidSdk(true, this::appendLog);
-            lastApk = ToolchainManager.buildDebugApk(projectRoot, this::appendLog);
+            lastApk = ToolchainManager.buildDebugApk(projectRoot, cleanBuild.isSelected(), offlineBuild.isSelected(), this::appendLog);
             return lastApk;
         });
     }
@@ -387,10 +416,11 @@ public final class BuildDialog extends JDialog {
     private void buildAab(ReleaseSigningConfig signing) {
         lastIssue = null;
         goIssue.setEnabled(false);
-        runTask(t("Play Store release AAB derleniyor"), () -> {
+        runTask(t("Play Store release AAB derleniyor"), () -> buildAab(signing), () -> {
             ToolchainManager.ensureGradle(this::appendLog);
             if (!ToolchainManager.sdkReady()) ToolchainManager.prepareAndroidSdk(true, this::appendLog);
-            Path aab = ToolchainManager.buildReleaseBundle(projectRoot, signing, this::appendLog);
+            Path aab = ToolchainManager.buildReleaseBundle(projectRoot, signing,
+                    cleanBuild.isSelected(), offlineBuild.isSelected(), this::appendLog);
             lastOutput = aab;
             return aab;
         });
@@ -411,7 +441,18 @@ public final class BuildDialog extends JDialog {
         aiFix.setEnabled(buildFix != null && !lastFailureLog.isBlank());
     }
 
-    private <T> void runTask(String title, Task<T> task) {
+    private void cancelBuild() {
+        appendLog("\n--- " + t("Durduruldu") + " ---");
+        cancel.setEnabled(false);
+        ProcessRunner.cancelCurrent();
+        SwingWorker<?, ?> worker = activeWorker;
+        if (worker != null) worker.cancel(true);
+    }
+
+    private <T> void runTask(String title, Runnable retryTask, Task<T> task) {
+        retryAction = retryTask;
+        retry.setEnabled(false);
+        cancel.setEnabled(true);
         lastFailureLog = "";
         aiFix.setEnabled(false);
         prepare.setEnabled(false);
@@ -422,6 +463,8 @@ public final class BuildDialog extends JDialog {
         SwingWorker<T, Void> worker = new SwingWorker<>() {
             @Override protected T doInBackground() throws Exception { return task.run(); }
             @Override protected void done() {
+                activeWorker = null;
+                cancel.setEnabled(false);
                 prepare.setEnabled(true);
                 output.setEnabled(true);
                 progress.setVisible(false);
@@ -441,6 +484,10 @@ public final class BuildDialog extends JDialog {
                                 aab ? t("Play Store AAB hazır") : t("Derleme başarılı"), JOptionPane.INFORMATION_MESSAGE);
                     } else detectExistingApk();
                 } catch (Exception ex) {
+                    if (isCancelled()) {
+                        appendLog(t("Derleme durduruldu."));
+                        return;
+                    }
                     Throwable cause = ex.getCause() == null ? ex : ex.getCause();
                     appendLog(t("HATA: ") + cause.getMessage());
                     refreshStatuses();
@@ -448,12 +495,14 @@ public final class BuildDialog extends JDialog {
                     flushLog();
                     lastFailureLog = logTail(14_000);
                     aiFix.setEnabled(buildFix != null && !lastFailureLog.isBlank());
+                    retry.setEnabled(retryAction != null);
                     String suffix = lastIssue == null ? "" : t("\n\nKaynak konumu bulundu. 'Hata Satırına Git' düğmesini kullanabilirsiniz.");
                     JOptionPane.showMessageDialog(BuildDialog.this,
                             friendlyError(cause) + suffix, t("İşlem başarısız"), JOptionPane.ERROR_MESSAGE);
                 }
             }
         };
+        activeWorker = worker;
         worker.execute();
     }
 

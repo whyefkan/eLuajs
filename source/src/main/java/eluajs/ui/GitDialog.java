@@ -31,6 +31,9 @@ public final class GitDialog extends JDialog {
     private final JButton diff = Ui.button(t("Diff"), false);
     private final JButton checkout = Ui.button(t("Checkout"), false);
     private final JButton newBranch = Ui.button(t("Yeni Dal"), false);
+    private final JButton stageFile = Ui.button(t("Seçileni Sahnele"), false);
+    private final JButton fetch = Ui.button(t("Fetch"), false);
+    private final JButton history = Ui.button(t("Geçmiş"), false);
     private boolean busy;
 
     public GitDialog(Frame owner, Path projectRoot) {
@@ -109,7 +112,11 @@ public final class GitDialog extends JDialog {
         changeActions.setOpaque(false);
         stage.addActionListener(e -> stageAll());
         diff.addActionListener(e -> showDiff());
+        stageFile.addActionListener(e -> stageSelected());
+        fetch.addActionListener(e -> fetchRemote());
+        history.addActionListener(e -> showHistory());
         changeActions.add(diff);
+        changeActions.add(stageFile);
         changeActions.add(stage);
         changesHead.add(changeActions, BorderLayout.EAST);
         left.add(changesHead, BorderLayout.NORTH);
@@ -165,6 +172,8 @@ public final class GitDialog extends JDialog {
         init.addActionListener(e -> initRepo());
         refresh.addActionListener(e -> refresh());
         bottomActions.add(status);
+        bottomActions.add(history);
+        bottomActions.add(fetch);
         bottomActions.add(init);
         bottomActions.add(refresh);
         bottomActions.add(close);
@@ -303,6 +312,24 @@ public final class GitDialog extends JDialog {
         String name = branchField.getText().trim();
         if (name.isEmpty()) return;
         act(t("Yeni dal oluşturuluyor..."), () -> GitManager.createBranch(root, name));
+    }
+
+    private void stageSelected() {
+        GitManager.Change change = changeList.getSelectedValue();
+        if (change == null) { status.setText(t("Önce bir dosya seçin.")); return; }
+        act(t("Dosya sahneleniyor..."), () -> GitManager.stage(root, change.path()));
+    }
+
+    private void fetchRemote() {
+        act(t("Fetch çalışıyor..."), () -> GitManager.fetch(root));
+    }
+
+    private void showHistory() {
+        act(t("Git geçmişi okunuyor..."), () -> {
+            GitManager.Result result = GitManager.log(root, 40);
+            SwingUtilities.invokeLater(() -> showText(t("Git Geçmişi"), result.output()));
+            return result;
+        });
     }
 
     private void showDiff() {

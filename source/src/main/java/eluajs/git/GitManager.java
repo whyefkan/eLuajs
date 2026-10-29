@@ -70,6 +70,18 @@ public final class GitManager {
         return run(root, "git", "add", "-A");
     }
 
+    public static Result stage(Path root, String path) {
+        return run(root, "git", "add", "--", path);
+    }
+
+    public static Result fetch(Path root) {
+        return run(root, "git", "fetch", "--all", "--prune");
+    }
+
+    public static Result discard(Path root, String path) {
+        return run(root, "git", "restore", "--", path);
+    }
+
     public static Result commit(Path root, String message) {
         if (message == null || message.isBlank()) return new Result(1, "Commit message is empty.");
         Result first = run(root, "git", "commit", "-m", message.trim());

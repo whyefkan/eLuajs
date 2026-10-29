@@ -235,6 +235,22 @@ public final class SyntaxEditorPane extends JTextPane {
                 if (undoManager.canRedo()) undoManager.redo();
             }
         });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_D, InputEvent.CTRL_DOWN_MASK), "eluajs-duplicate-line");
+        am.put("eluajs-duplicate-line", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { duplicateLine(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_SLASH, InputEvent.CTRL_DOWN_MASK), "eluajs-comment");
+        am.put("eluajs-comment", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { toggleComment(); }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK), "eluajs-move-up");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK), "eluajs-move-down");
+        am.put("eluajs-move-up", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { moveLine(-1); }
+        });
+        am.put("eluajs-move-down", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { moveLine(1); }
+        });
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, InputEvent.CTRL_DOWN_MASK), "eluajs-copy");
         am.put("eluajs-copy", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { copySelectionOrLine(false); }
@@ -321,6 +337,72 @@ public final class SyntaxEditorPane extends JTextPane {
         menu.add(zoomOut);
         menu.add(zoomReset);
         return menu;
+    }
+
+    private void duplicateLine() {
+        try {
+            Element root = getDocument().getDefaultRootElement();
+            int caret = getCaretPosition();
+            Element line = root.getElement(root.getElementIndex(caret));
+            String text = getDocument().getText(line.getStartOffset(), line.getEndOffset() - line.getStartOffset());
+            if (!text.endsWith("\n")) text += "\n";
+            int at = line.getEndOffset();
+            getDocument().insertString(at, text, null);
+            setCaretPosition(Math.min(at + text.length(), getDocument().getLength()));
+        } catch (BadLocationException ignored) { }
+    }
+
+    private void toggleComment() {
+        try {
+            Element root = getDocument().getDefaultRootElement();
+            int startLine = root.getElementIndex(getSelectionStart());
+            int endLine = root.getElementIndex(Math.max(getSelectionStart(), getSelectionEnd() - 1));
+            boolean allCommented = true;
+            for (int i = startLine; i <= endLine; i++) {
+                Element line = root.getElement(i);
+                String text = getDocument().getText(line.getStartOffset(), line.getEndOffset() - line.getStartOffset());
+                if (!text.stripLeading().startsWith("//")) { allCommented = false; break; }
+            }
+            foldingOperation = true;
+            for (int i = endLine; i >= startLine; i--) {
+                Element line = root.getElement(i);
+                String text = getDocument().getText(line.getStartOffset(), line.getEndOffset() - line.getStartOffset());
+                int indent = 0;
+                while (indent < text.length() && Character.isWhitespace(text.charAt(indent)) && text.charAt(indent) != '\n') indent++;
+                if (allCommented) {
+                    int remove = text.length() > indent + 2 && text.startsWith("//", indent) ? 2 : 0;
+                    if (remove > 0 && indent + remove < text.length() && text.charAt(indent + remove) == ' ') remove++;
+                    if (remove > 0) getDocument().remove(line.getStartOffset() + indent, remove);
+                } else {
+                    getDocument().insertString(line.getStartOffset() + indent, "// ", null);
+                }
+            }
+            foldingOperation = false;
+        } catch (BadLocationException ignored) { foldingOperation = false; }
+    }
+
+    private void moveLine(int direction) {
+        try {
+            Element root = getDocument().getDefaultRootElement();
+            int index = root.getElementIndex(getCaretPosition());
+            int other = index + direction;
+            if (other < 0 || other >= root.getElementCount()) return;
+            Element current = root.getElement(index);
+            Element target = root.getElement(other);
+            int start = Math.min(current.getStartOffset(), target.getStartOffset());
+            int end = Math.max(current.getEndOffset(), target.getEndOffset());
+            String block = getDocument().getText(start, end - start);
+            String currentText = getDocument().getText(current.getStartOffset(), current.getEndOffset() - current.getStartOffset());
+            String targetText = getDocument().getText(target.getStartOffset(), target.getEndOffset() - target.getStartOffset());
+            String replacement = direction < 0 ? currentText + targetText : targetText + currentText;
+            int caretOffset = getCaretPosition() - current.getStartOffset();
+            foldingOperation = true;
+            getDocument().remove(start, end - start);
+            getDocument().insertString(start, replacement, null);
+            foldingOperation = false;
+            int lineStart = direction < 0 ? start : start + targetText.length();
+            setCaretPosition(Math.min(lineStart + caretOffset, getDocument().getLength()));
+        } catch (BadLocationException ignored) { foldingOperation = false; }
     }
 
     private void copySelectionOrLine(boolean cut) {

@@ -122,7 +122,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - `1.5.1` was the reliability/security patch.
 - `1.5.2` kept both APK and AAB actions visible in the build window.
 - `1.5.3` simplified output selection into a single **Çıktı Al** action.
-- `1.5.4` adds the custom output chooser window and makes AI continue after file-reading replies.
+- `1.5.4` added the custom output chooser window and made AI continue after file-reading replies.
+- `1.5.5` is the reliability pack: autosave/session restore, project watcher, build cancel/clean/offline/retry, quick open, command palette, line operations, ADB logcat, AI stop/retry/audit and project rules.
 - Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.

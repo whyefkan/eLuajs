@@ -30,6 +30,57 @@ public final class AiClient {
         return completeDetailed(cfg, system, messages).text();
     }
 
+    public static AiResult completeStreaming(AiConfig cfg, String system, List<AiMessage> messages,
+                                             java.util.function.Consumer<String> onDelta) throws Exception {
+        AiProvider provider = cfg.provider();
+        if (provider.kind() != AiProvider.Kind.OPENAI || onDelta == null) {
+            return completeDetailed(cfg, system, messages);
+        }
+        String model = cfg.activeModel();
+        String key = cfg.activeKey();
+        String base = cfg.activeBaseUrl();
+        if (provider.requiresKey() && (key == null || key.isBlank())) {
+            throw new IllegalStateException(I18n.t("No API key configured. Open Settings and add one."));
+        }
+        if (base == null || base.isBlank()) throw new IllegalStateException(I18n.t("Base URL is required for this provider."));
+        if (model == null || model.isBlank()) throw new IllegalStateException(I18n.t("Enter a model name for this provider."));
+        HttpRequest request = openAiRequest(provider, base, model, key, system, messages, true);
+        HttpResponse<java.io.InputStream> response = HTTP.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() / 100 != 2) {
+            String body = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+            throw new IOException(errorMessage(body, response.statusCode()));
+        }
+        StringBuilder text = new StringBuilder();
+        long prompt = 0, completion = 0, total = 0;
+        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data:")) continue;
+                String data = line.substring(5).trim();
+                if (data.equals("[DONE]")) break;
+                if (data.isEmpty()) continue;
+                try {
+                    Object root = Json.parse(data);
+                    Object delta = Json.at(root, "choices", 0, "delta", "content");
+                    if (delta != null) {
+                        String piece = String.valueOf(delta);
+                        if (!piece.isEmpty()) { text.append(piece); onDelta.accept(piece); }
+                    }
+                    long p = number(Json.at(root, "usage", "prompt_tokens"));
+                    long c = number(Json.at(root, "usage", "completion_tokens"));
+                    long t = number(Json.at(root, "usage", "total_tokens"));
+                    if (p > 0) prompt = p;
+                    if (c > 0) completion = c;
+                    if (t > 0) total = t;
+                } catch (Exception ignored) { }
+            }
+        }
+        if (text.isEmpty()) throw new IOException(I18n.t("Empty response from the provider."));
+        if (completion <= 0) completion = Math.max(1, text.length() / 4);
+        if (total <= 0) total = prompt + completion;
+        return new AiResult(text.toString().trim(), prompt, completion, total);
+    }
+
     public static AiResult completeDetailed(AiConfig cfg, String system, List<AiMessage> messages) throws Exception {
         AiProvider provider = cfg.provider();
         String model = cfg.activeModel();
@@ -90,6 +141,52 @@ public final class AiClient {
         return new AiResult(text.trim(), prompt, completion, total);
     }
 
+    public static List<String> listModels(AiConfig cfg) throws Exception {
+        AiProvider provider = cfg.provider();
+        String base = cfg.activeBaseUrl();
+        String key = cfg.activeKey();
+        if (base == null || base.isBlank()) throw new IOException(I18n.t("Base URL is required for this provider."));
+        String url = base.replaceAll("/+$", "");
+        HttpRequest.Builder b;
+        if (provider.kind() == AiProvider.Kind.GEMINI) {
+            url += "/models?key=" + URLEncoder.encode(key == null ? "" : key, StandardCharsets.UTF_8);
+            b = HttpRequest.newBuilder(URI.create(url));
+        } else {
+            url += "/models";
+            b = HttpRequest.newBuilder(URI.create(url));
+            if (key != null && !key.isBlank()) {
+                if (provider.kind() == AiProvider.Kind.ANTHROPIC) b.header("x-api-key", key);
+                else b.header("Authorization", "Bearer " + key);
+            }
+            if (provider.kind() == AiProvider.Kind.ANTHROPIC) b.header("anthropic-version", "2023-06-01");
+        }
+        b.timeout(Duration.ofSeconds(30)).header("User-Agent", "eLuajs/1.5")
+                .header("Accept", "application/json");
+        HttpResponse<String> response = HTTP.send(b.GET().build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() / 100 != 2) throw new IOException("Model list failed: HTTP " + response.statusCode());
+        Object root = Json.parse(response.body());
+        List<String> result = new java.util.ArrayList<>();
+        Object list = Json.at(root, "data");
+        if (list instanceof List<?> items) {
+            for (Object item : items) {
+                String id = item instanceof Map<?, ?> map ? String.valueOf(map.get("id")) : null;
+                if (id != null && !id.isBlank() && !id.equals("null")) result.add(id);
+            }
+        }
+        list = Json.at(root, "models");
+        if (list instanceof List<?> items) {
+            for (Object item : items) {
+                String name = item instanceof Map<?, ?> map ? String.valueOf(map.get("name")) : null;
+                if (name != null && !name.isBlank() && !name.equals("null")) {
+                    if (name.startsWith("models/")) name = name.substring(7);
+                    result.add(name);
+                }
+            }
+        }
+        result.sort(String.CASE_INSENSITIVE_ORDER);
+        return result;
+    }
+
     private static long number(Object value) {
         if (value instanceof Number n) return n.longValue();
         if (value instanceof String s) {
@@ -100,9 +197,15 @@ public final class AiClient {
 
     private static HttpRequest openAiRequest(AiProvider provider, String base, String model, String key,
                                              String system, List<AiMessage> messages) {
+        return openAiRequest(provider, base, model, key, system, messages, false);
+    }
+
+    private static HttpRequest openAiRequest(AiProvider provider, String base, String model, String key,
+                                             String system, List<AiMessage> messages, boolean stream) {
         String url = endpoint(base, "/chat/completions");
         String body = "{\"model\":" + Json.quote(model)
-                + ",\"messages\":" + openAiMessages(system, messages) + ",\"temperature\":0.2}";
+                + ",\"messages\":" + openAiMessages(system, messages) + ",\"temperature\":0.2"
+                + (stream ? ",\"stream\":true" : "") + "}";
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(120))
                 .header("Content-Type", "application/json")

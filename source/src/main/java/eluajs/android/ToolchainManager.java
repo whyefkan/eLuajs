@@ -132,6 +132,10 @@ public final class ToolchainManager {
     }
 
     public static Path buildDebugApk(Path projectRoot, Consumer<String> log) throws Exception {
+        return buildDebugApk(projectRoot, false, false, log);
+    }
+
+    public static Path buildDebugApk(Path projectRoot, boolean clean, boolean offline, Consumer<String> log) throws Exception {
         if (!javaReady()) {
             throw new IllegalStateException("JDK eksik: java, javac ve jlink birlikte bulunmalıdır. JDK: " + javaHome());
         }
@@ -145,8 +149,11 @@ public final class ToolchainManager {
         FileUtil.writeStringAtomic(local, "sdk.dir=" + sdkEscaped + "\n");
         Map<String,String> env = environment();
         log.accept("APK derlemesi başlatıldı...");
-        int exit = ProcessRunner.run(toolCommand(gradleExecutable(), "--no-daemon", "--console=plain",
-                ProjectLayout.task(projectRoot, "assembleDebug")), projectRoot, env, null, log);
+        List<String> command = new ArrayList<>(List.of(gradleExecutable().toString(), "--no-daemon", "--console=plain"));
+        if (offline) command.add("--offline");
+        if (clean) command.add(ProjectLayout.task(projectRoot, "clean"));
+        command.add(ProjectLayout.task(projectRoot, "assembleDebug"));
+        int exit = ProcessRunner.run(command, projectRoot, env, null, log);
         if (exit != 0) throw new IOException("Gradle derlemesi başarısız (kod " + exit + "). Ayrıntılar yukarıdaki günlükte.");
         Path apk = ProjectLayout.debugApk(projectRoot);
         if (apk == null || !Files.isRegularFile(apk)) {
@@ -189,6 +196,12 @@ public final class ToolchainManager {
         if (devices.size() > 1 && log != null) {
             log.accept("Birden fazla cihaz bulundu; ilk cihaz kullanılıyor: " + serial);
         }
+        installApk(serial, apk, log);
+    }
+
+    public static void installApk(String serial, Path apk, Consumer<String> log) throws Exception {
+        if (serial == null || serial.isBlank()) throw new IOException("Cihaz seçilmedi.");
+        if (apk == null || !Files.isRegularFile(apk)) throw new IOException("Yüklenecek APK bulunamadı.");
         if (log != null) log.accept("APK yükleniyor: " + apk.getFileName() + " → " + serial);
         int exit = ProcessRunner.run(List.of(adbExecutable().toString(), "-s", serial, "install", "-r", apk.toString()),
                 null, environment(), null, log);
@@ -243,6 +256,11 @@ public final class ToolchainManager {
     }
 
     public static Path buildReleaseBundle(Path projectRoot, ReleaseSigningConfig signing, Consumer<String> log) throws Exception {
+        return buildReleaseBundle(projectRoot, signing, false, false, log);
+    }
+
+    public static Path buildReleaseBundle(Path projectRoot, ReleaseSigningConfig signing, boolean clean, boolean offline,
+                                          Consumer<String> log) throws Exception {
         if (!javaReady()) throw new IllegalStateException("JDK eksik: java, javac, jlink ve keytool birlikte bulunmalıdır. JDK: " + javaHome());
         if (!sdkReady()) throw new IllegalStateException("Android SDK eksik. Önce araçları hazırlayın.");
         signing.validate();
@@ -260,9 +278,12 @@ public final class ToolchainManager {
             log.accept("Release AAB derlemesi başlatıldı...");
             log.accept("İmzalama: " + signing.storeFile() + " / alias=" + signing.keyAlias());
         }
-        int exit = ProcessRunner.run(toolCommand(gradleExecutable(), "--no-daemon", "--console=plain",
-                        "--init-script", initScript.toString(), ProjectLayout.task(projectRoot, "bundleRelease")),
-                projectRoot, env, null, log);
+        List<String> command = new ArrayList<>(List.of(gradleExecutable().toString(), "--no-daemon", "--console=plain",
+                "--init-script", initScript.toString()));
+        if (offline) command.add("--offline");
+        if (clean) command.add(ProjectLayout.task(projectRoot, "clean"));
+        command.add(ProjectLayout.task(projectRoot, "bundleRelease"));
+        int exit = ProcessRunner.run(command, projectRoot, env, null, log);
         if (exit != 0) throw new IOException("Release AAB Gradle derlemesi başarısız (kod " + exit + "). Ayrıntılar yukarıdaki günlükte.");
 
         Path aab = ProjectLayout.releaseAab(projectRoot);

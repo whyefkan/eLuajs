@@ -289,6 +289,9 @@ public final class SettingsDialog extends JDialog {
         modelCombo.setEditable(true);
         styleComboEditor(modelCombo);
         modelCombo.setToolTipText(t("You can type any model supported by the provider."));
+        JButton refreshModels = Ui.button(t("Modelleri Yenile"), false);
+        refreshModels.setFont(Theme.font(10, Font.BOLD));
+        refreshModels.addActionListener(e -> refreshModels(refreshModels));
         baseUrl.setToolTipText(t("Base URL (optional)"));
         showKey.setOpaque(false);
         showKey.setForeground(Theme.MUTED);
@@ -317,6 +320,9 @@ public final class SettingsDialog extends JDialog {
         JLabel modelHint = Ui.label(t("You can type any model supported by the provider."), 10, Font.PLAIN, Theme.MUTED);
         modelHint.setAlignmentX(Component.LEFT_ALIGNMENT);
         form.add(modelHint);
+        modelHint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        refreshModels.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(refreshModels);
         form.add(Box.createVerticalStrut(12));
 
         JPanel baseRow = fieldColumn(t("Base URL (optional)"), baseUrl);
@@ -615,6 +621,39 @@ public final class SettingsDialog extends JDialog {
             status.setForeground(config.hasKey(provider) ? Theme.ACCENT : Theme.MUTED);
         }
         refreshSavedProviders();
+    }
+
+    private void refreshModels(JButton button) {
+        storeProviderFields();
+        AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
+        if (provider == null) return;
+        config.setProvider(provider);
+        button.setEnabled(false);
+        status.setText(t("Modeller okunuyor..."));
+        SwingWorker<java.util.List<String>, Void> worker = new SwingWorker<>() {
+            @Override protected java.util.List<String> doInBackground() throws Exception {
+                return AiClient.listModels(config);
+            }
+            @Override protected void done() {
+                button.setEnabled(true);
+                try {
+                    java.util.List<String> models = get();
+                    String current = config.model(provider);
+                    modelCombo.removeAllItems();
+                    for (String model : models) modelCombo.addItem(model);
+                    if (!current.isBlank() && !models.contains(current)) modelCombo.addItem(current);
+                    modelCombo.setSelectedItem(current);
+                    modelCombo.getEditor().setItem(current);
+                    status.setText(t("%d model bulundu.", models.size()));
+                    status.setForeground(Theme.ACCENT);
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+                    status.setText(t("Modeller okunamadı: %s", cause.getMessage()));
+                    status.setForeground(Theme.DANGER);
+                }
+            }
+        };
+        worker.execute();
     }
 
     private void storeProviderFields() {

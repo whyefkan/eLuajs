@@ -9,7 +9,14 @@ import java.util.function.Consumer;
 
 public final class ProcessRunner {
     private static final long DEFAULT_TIMEOUT_MINUTES = 60;
+    private static final java.util.concurrent.atomic.AtomicReference<Process> ACTIVE =
+            new java.util.concurrent.atomic.AtomicReference<>();
     private ProcessRunner() {}
+
+    public static void cancelCurrent() {
+        Process process = ACTIVE.getAndSet(null);
+        if (process != null && process.isAlive()) terminateTree(process);
+    }
 
     public static int run(List<String> command, Path workingDir, Map<String,String> env, String stdin, Consumer<String> log) throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(command);
@@ -17,6 +24,7 @@ public final class ProcessRunner {
         pb.redirectErrorStream(true);
         if (env != null) pb.environment().putAll(env);
         Process p = pb.start();
+        ACTIVE.set(p);
 
         if (stdin != null) {
             try (Writer w = new OutputStreamWriter(p.getOutputStream(), StandardCharsets.UTF_8)) {
@@ -52,6 +60,7 @@ public final class ProcessRunner {
             catch (ExecutionException | TimeoutException ignored) { }
             return p.exitValue();
         } finally {
+            ACTIVE.compareAndSet(p, null);
             if (p.isAlive()) terminateTree(p);
             reader.cancel(true);
             readerPool.shutdownNow();
