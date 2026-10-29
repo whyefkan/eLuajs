@@ -115,7 +115,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 ## Versioning
 
 - `1.5.0` was the large feature update (import, tabs, Git, build manager, six languages, and more).
-- `1.5.1` is the follow-up reliability/security patch.
+- `1.5.1` was the reliability/security patch.
+- `1.5.2` keeps both **Debug APK** and **Play Store AAB** actions visible in the build window.
 - Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.
