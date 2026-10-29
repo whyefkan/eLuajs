@@ -161,7 +161,7 @@ public final class EditorFrame extends JFrame {
         JButton split = Ui.iconButton(t("Böl"), "split", false);
         split.setToolTipText(t("Yan yana önizleme (Ctrl+\\)"));
         split.addActionListener(e -> toggleSplit());
-        JButton build = Ui.iconButton(t("Derle / APK + AAB"), "run", true);
+        JButton build = Ui.iconButton(t("Çıktı Al"), "run", true);
         build.addActionListener(e -> {
             saveCurrentSilently();
             clearProblems();

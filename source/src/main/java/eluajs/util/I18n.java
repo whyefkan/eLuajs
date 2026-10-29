@@ -235,6 +235,12 @@ public final class I18n {
         // Common buttons / dialogs
         en("Vazgeç", "Cancel");
         en("Kapat", "Close");
+        en("Çıktı Al", "Get Output");
+        en("Ne üretmek istiyorsun?", "What do you want to build?");
+        en("APK test içindir; AAB Google Play yüklemesi içindir.", "APK is for testing; AAB is for Google Play uploads.");
+        en("Hızlı test ve cihaza kurulum", "Quick testing and device installation");
+        en("İmzalı Google Play çıktısı", "Signed Google Play output");
+        en("eLuajs — Çıktı Al", "eLuajs — Get Output");
         en("Git", "Git");
         en("Git Başlat", "Initialize Git");
         en("Tümünü Sahnele", "Stage All");
@@ -835,6 +841,12 @@ public final class I18n {
         tr("Update", "Güncelleme");
         tr("Settings", "Ayarlar");
         tr("eLuajs Settings", "eLuajs Ayarları");
+        tr("Çıktı Al", "Çıktı Al");
+        tr("Ne üretmek istiyorsun?", "Ne üretmek istiyorsun?");
+        tr("APK test içindir; AAB Google Play yüklemesi içindir.", "APK test içindir; AAB Google Play yüklemesi içindir.");
+        tr("Hızlı test ve cihaza kurulum", "Hızlı test ve cihaza kurulum");
+        tr("İmzalı Google Play çıktısı", "İmzalı Google Play çıktısı");
+        tr("eLuajs — Çıktı Al", "eLuajs — Çıktı Al");
         tr("Kes", "Kes");
         tr("Kopyala", "Kopyala");
         tr("Yapıştır", "Yapıştır");
@@ -1014,6 +1026,30 @@ public final class I18n {
     }
 
     private static void addGeneratedTranslations() {
+        deT("Çıktı Al", "Ausgabe erhalten");
+        deT("Ne üretmek istiyorsun?", "Was möchtest du erstellen?");
+        deT("APK test içindir; AAB Google Play yüklemesi içindir.", "APK ist zum Testen; AAB für Google Play-Uploads.");
+        deT("Hızlı test ve cihaza kurulum", "Schneller Test und Geräteinstallation");
+        deT("İmzalı Google Play çıktısı", "Signierte Google-Play-Ausgabe");
+        deT("eLuajs — Çıktı Al", "eLuajs — Ausgabe erhalten");
+        frT("Çıktı Al", "Obtenir la sortie");
+        frT("Ne üretmek istiyorsun?", "Que veux-tu générer ?");
+        frT("APK test içindir; AAB Google Play yüklemesi içindir.", "L'APK sert aux tests ; l'AAB sert à l'envoi sur Google Play.");
+        frT("Hızlı test ve cihaza kurulum", "Test rapide et installation sur l'appareil");
+        frT("İmzalı Google Play çıktısı", "Sortie Google Play signée");
+        frT("eLuajs — Çıktı Al", "eLuajs — Obtenir la sortie");
+        esT("Çıktı Al", "Obtener salida");
+        esT("Ne üretmek istiyorsun?", "¿Qué quieres generar?");
+        esT("APK test içindir; AAB Google Play yüklemesi içindir.", "El APK es para pruebas; el AAB es para subirlo a Google Play.");
+        esT("Hızlı test ve cihaza kurulum", "Prueba rápida e instalación en el dispositivo");
+        esT("İmzalı Google Play çıktısı", "Salida firmada de Google Play");
+        esT("eLuajs — Çıktı Al", "eLuajs — Obtener salida");
+        ruT("Çıktı Al", "Получить результат");
+        ruT("Ne üretmek istiyorsun?", "Что вы хотите собрать?");
+        ruT("APK test içindir; AAB Google Play yüklemesi içindir.", "APK — для тестирования; AAB — для загрузки в Google Play.");
+        ruT("Hızlı test ve cihaza kurulum", "Быстрый тест и установка на устройство");
+        ruT("İmzalı Google Play çıktısı", "Подписанный результат для Google Play");
+        ruT("eLuajs — Çıktı Al", "eLuajs — Получить результат");
         deT("Hafif ve hızlı Android Java IDE. Kodla, doğrula, debug APK veya imzalı Play Store AAB al.", "Eine leichte, schnelle Android-Java-IDE. Codieren, prüfen und Debug-APK oder signiertes Play-Store-AAB erhalten.");
         frT("Hafif ve hızlı Android Java IDE. Kodla, doğrula, debug APK veya imzalı Play Store AAB al.", "Un IDE Java Android léger et rapide. Codez, validez et obtenez un APK de débogage ou un AAB Play Store signé.");
         esT("Hafif ve hızlı Android Java IDE. Kodla, doğrula, debug APK veya imzalı Play Store AAB al.", "Un IDE Java Android ligero y rápido. Programa, valida y obtén un APK de depuración o un AAB de Play Store firmado.");

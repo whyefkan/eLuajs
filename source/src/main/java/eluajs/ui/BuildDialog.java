@@ -33,8 +33,7 @@ public final class BuildDialog extends JDialog {
     private final JTextArea log = new JTextArea();
     private final JCheckBox license = new JCheckBox(t("Android SDK lisans koşullarını kabul ediyorum"));
     private final JButton prepare = Ui.button(t("Araçları Hazırla"), false);
-    private final JButton build = Ui.button("▶  " + t("Debug APK"), false);
-    private final JButton buildAab = Ui.button("◆  " + t("Play Store AAB"), true);
+    private final JButton output = Ui.button("⤓  " + t("Çıktı Al"), true);
     private final JButton openApk = Ui.button(t("Çıktı Klasörünü Aç"), false);
     private final JButton adbInstall = Ui.button(t("ADB ile Yükle"), false);
     private final JButton bumpVersion = Ui.button(t("Sürüm +1"), false);
@@ -56,7 +55,7 @@ public final class BuildDialog extends JDialog {
     }
 
     public BuildDialog(Frame owner, Path projectRoot, BiConsumer<Path,Integer> navigator, Consumer<Problem> problemSink) {
-        super(owner, t("eLuajs — Derle / APK / AAB"), true);
+        super(owner, t("eLuajs — Çıktı Al"), true);
         WindowChrome.install(this);
         this.projectRoot = projectRoot;
         this.navigator = navigator;
@@ -215,8 +214,7 @@ public final class BuildDialog extends JDialog {
         JPanel primaryActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 7, 0));
         primaryActions.setOpaque(false);
         prepare.addActionListener(e -> prepareSdk());
-        build.addActionListener(e -> buildApk());
-        buildAab.addActionListener(e -> showAabSigning());
+        output.addActionListener(e -> chooseOutput());
         openApk.addActionListener(e -> openApkFolder());
         adbInstall.addActionListener(e -> installApk());
         adbInstall.setEnabled(false);
@@ -235,13 +233,12 @@ public final class BuildDialog extends JDialog {
         secondaryActions.add(prepare);
         secondaryActions.add(openApk);
         secondaryActions.add(adbInstall);
-        primaryActions.add(build);
-        primaryActions.add(buildAab);
+        primaryActions.add(output);
         actions.add(secondaryActions, BorderLayout.WEST);
         actions.add(primaryActions, BorderLayout.EAST);
         footer.add(actions, BorderLayout.SOUTH);
         root.add(footer, BorderLayout.SOUTH);
-        getRootPane().setDefaultButton(buildAab);
+        getRootPane().setDefaultButton(output);
         return root;
     }
 
@@ -367,6 +364,10 @@ public final class BuildDialog extends JDialog {
         });
     }
 
+    private void chooseOutput() {
+        new BuildOutputDialog(this, this::buildApk, this::showAabSigning).setVisible(true);
+    }
+
     private void showAabSigning() {
         if (!ToolchainManager.javaReady()) {
             JOptionPane.showMessageDialog(this,
@@ -414,8 +415,7 @@ public final class BuildDialog extends JDialog {
         lastFailureLog = "";
         aiFix.setEnabled(false);
         prepare.setEnabled(false);
-        build.setEnabled(false);
-        buildAab.setEnabled(false);
+        output.setEnabled(false);
         openApk.setEnabled(false);
         progress.setVisible(true);
         appendLog("\n--- " + title + " ---");
@@ -423,8 +423,7 @@ public final class BuildDialog extends JDialog {
             @Override protected T doInBackground() throws Exception { return task.run(); }
             @Override protected void done() {
                 prepare.setEnabled(true);
-                build.setEnabled(true);
-                buildAab.setEnabled(true);
+                output.setEnabled(true);
                 progress.setVisible(false);
                 try {
                     T result = get();
