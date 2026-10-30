@@ -6,6 +6,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.net.URI;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static eluajs.util.I18n.t;
 
@@ -129,11 +130,12 @@ public final class UpdateDialog extends JDialog {
 
         JDialog progress = new JDialog(this, t("Installing update"), true);
         progress.setUndecorated(true);
+        progress.setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBackground(Theme.PANEL);
         panel.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.BORDER),
-                new EmptyBorder(18, 22, 18, 22)));
+                new EmptyBorder(18, 22, 14, 22)));
         panel.add(Ui.label(t("Downloading and installing the update..."), 12, Font.PLAIN, Theme.TEXT), BorderLayout.NORTH);
         JProgressBar bar = new JProgressBar();
         bar.setIndeterminate(true);
@@ -141,18 +143,25 @@ public final class UpdateDialog extends JDialog {
         bar.setForeground(Theme.ACCENT);
         bar.setBorderPainted(false);
         panel.add(bar, BorderLayout.CENTER);
+        JPanel progressActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        progressActions.setOpaque(false);
+        JButton cancelUpdate = Ui.button(t("Vazgeç"), false);
+        progressActions.add(cancelUpdate);
+        panel.add(progressActions, BorderLayout.SOUTH);
         progress.setContentPane(panel);
-        progress.setSize(420, 110);
+        progress.setSize(460, 150);
         progress.setLocationRelativeTo(this);
         progress.setAlwaysOnTop(true);
 
+        AtomicBoolean cancelled = new AtomicBoolean();
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
             @Override protected Void doInBackground() throws Exception {
-                UpdateManager.install(release);
+                UpdateManager.install(release, cancelled::get);
                 return null;
             }
             @Override protected void done() {
                 progress.dispose();
+                if (isCancelled() || cancelled.get()) return;
                 try {
                     get();
                     dispose();
@@ -165,6 +174,11 @@ public final class UpdateDialog extends JDialog {
                 }
             }
         };
+        cancelUpdate.addActionListener(e -> {
+            cancelled.set(true);
+            worker.cancel(true);
+            cancelUpdate.setEnabled(false);
+        });
         progress.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override public void windowOpened(java.awt.event.WindowEvent e) { worker.execute(); }
         });

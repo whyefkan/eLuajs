@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="$ROOT/out"
 CLASSES="$OUT/classes"
-VERSION="${VERSION:-1.5.7}"
+VERSION="${VERSION:-1.5.8}"
 
 JAVAC="${JAVAC:-}"
 if [[ -z "$JAVAC" ]]; then

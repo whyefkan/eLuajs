@@ -1,6 +1,7 @@
 package eluajs.ui;
 
 import eluajs.ai.AiClient;
+import eluajs.ai.AiErrors;
 import eluajs.ai.AiConfig;
 import eluajs.ai.AiMessage;
 import eluajs.ai.AiPricing;
@@ -109,6 +110,7 @@ public final class AiPanel extends JPanel {
     private final Runnable onClose;
     private final Runnable beforeSend;
     private final Runnable afterFilesChanged;
+    private final Consumer<Path> openFile;
 
     private AiConfig config = AiConfig.load();
     private AiProvider lastProvider;
@@ -116,6 +118,12 @@ public final class AiPanel extends JPanel {
     private Map<Path, String> lastUndo = new LinkedHashMap<>();
     private Path lastCheckpoint;
     private String lastPrompt = "";
+    private String cachedIndex;
+    private long cachedIndexAt;
+    private long contextTokensEstimate;
+    private final java.util.LinkedList<String> promptHistory = new java.util.LinkedList<>();
+    private int promptHistoryIndex;
+    private final List<Path> pinned = new ArrayList<>();
     private String sessionId;
     private boolean busy;
     private SwingWorker<LoopResult, ProgressEvent> activeWorker;
@@ -143,11 +151,17 @@ public final class AiPanel extends JPanel {
 
     public AiPanel(SyntaxEditorPane editor, Supplier<String> fileLabel, Supplier<Path> currentFile,
                    Path projectRoot, Runnable onClose, Runnable beforeSend, Runnable afterFilesChanged) {
-        this(() -> editor, fileLabel, currentFile, projectRoot, onClose, beforeSend, afterFilesChanged);
+        this(() -> editor, fileLabel, currentFile, projectRoot, onClose, beforeSend, afterFilesChanged, null);
     }
 
     public AiPanel(Supplier<SyntaxEditorPane> editorProvider, Supplier<String> fileLabel, Supplier<Path> currentFile,
                    Path projectRoot, Runnable onClose, Runnable beforeSend, Runnable afterFilesChanged) {
+        this(editorProvider, fileLabel, currentFile, projectRoot, onClose, beforeSend, afterFilesChanged, null);
+    }
+
+    public AiPanel(Supplier<SyntaxEditorPane> editorProvider, Supplier<String> fileLabel, Supplier<Path> currentFile,
+                   Path projectRoot, Runnable onClose, Runnable beforeSend, Runnable afterFilesChanged,
+                   Consumer<Path> openFile) {
         super(new BorderLayout());
         this.editorProvider = editorProvider;
         this.fileLabel = fileLabel;
@@ -156,6 +170,7 @@ public final class AiPanel extends JPanel {
         this.onClose = onClose;
         this.beforeSend = beforeSend;
         this.afterFilesChanged = afterFilesChanged;
+        this.openFile = openFile;
         setBackground(Theme.PANEL);
         setPreferredSize(new Dimension(400, 1));
         setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, Theme.BORDER_SOFT));
@@ -179,6 +194,19 @@ public final class AiPanel extends JPanel {
         restoreLatest();
     }
 
+    private void pinCurrent(JButton button) {
+        Path file = currentFile == null ? null : currentFile.get();
+        if (file == null) return;
+        if (pinned.remove(file)) {
+            button.setForeground(Theme.MUTED);
+            addSystemNote(t("Unpinned: %s", file.getFileName()));
+        } else if (pinned.size() < 6) {
+            pinned.add(file);
+            button.setForeground(Theme.ACCENT);
+            addSystemNote(t("Pinned: %s", file.getFileName()));
+        }
+    }
+
     private JComponent header() {
         JPanel root = new JPanel(new BorderLayout(8, 0));
         root.setBackground(Theme.PANEL);
@@ -198,6 +226,12 @@ public final class AiPanel extends JPanel {
         undoEdits.addActionListener(e -> undoAiEdits());
         JButton history = iconOnly("history", t("Chat history"));
         history.addActionListener(e -> showHistory(history));
+        JButton pin = Ui.button(t("Pin"), false);
+        pin.setFont(Theme.font(9, Font.BOLD));
+        pin.setBorder(new EmptyBorder(4, 6, 4, 6));
+        pin.setToolTipText(t("Sabit context: geçerli dosyayı AI'ya ekle"));
+        pin.addActionListener(e -> pinCurrent(pin));
+        tools.add(pin);
         JButton clear = iconOnly("plus", t("New chat"));
         clear.addActionListener(e -> newChat());
         JButton close = iconOnly("close", t("Close"));
@@ -326,6 +360,7 @@ public final class AiPanel extends JPanel {
     }
 
     private void stopRequest() {
+        AiClient.cancelActive();
         if (activeWorker != null) activeWorker.cancel(true);
         busy = false;
         working.stop();
@@ -483,6 +518,7 @@ public final class AiPanel extends JPanel {
         sessionCompletion = 0;
         sessionTotal = 0;
         sessionCost = 0;
+        contextTokensEstimate = 0;
         updateUsageLabel();
         conversation.revalidate();
         conversation.repaint();
@@ -518,6 +554,7 @@ public final class AiPanel extends JPanel {
         sessionCompletion = 0;
         sessionTotal = 0;
         sessionCost = 0;
+        contextTokensEstimate = 0;
         updateUsageLabel();
         status.setText(t("Restored chat: %s", session.title()));
         status.setForeground(Theme.MUTED);
@@ -581,9 +618,28 @@ public final class AiPanel extends JPanel {
         popup.show(anchor, -popupWidth + anchor.getWidth(), anchor.getHeight());
     }
 
+    private String expandSlash(String text) {
+        if (text == null || !text.startsWith("/")) return text;
+        String[] parts = text.split("\\s+", 2);
+        String command = parts[0].toLowerCase(Locale.ROOT);
+        String tail = parts.length > 1 ? parts[1].trim() : "";
+        return switch (command) {
+            case "/fix" -> "Find and fix the current problem in this project. Inspect the relevant files and apply the smallest safe change.";
+            case "/explain" -> "Explain the current file and the important project links. Do not modify files.";
+            case "/page" -> tail.isBlank() ? "Create a new Android page. Ask for a clear name if needed." : "CREATE_PAGE: " + tail;
+            case "/test" -> "Add a lightweight self-check or validation for this project without adding third-party dependencies.";
+            case "/review" -> "Review the current project changes for bugs, Android compatibility, permissions and obvious performance problems. Do not modify files; give a concise review with file references.";
+            default -> text;
+        };
+    }
+
     private void send() {
-        String text = prompt.getText().trim();
+        String text = expandSlash(prompt.getText().trim());
         if (text.isEmpty() || busy) return;
+        promptHistory.remove(text);
+        promptHistory.addFirst(text);
+        while (promptHistory.size() > 20) promptHistory.removeLast();
+        promptHistoryIndex = -1;
         config = AiConfig.load();
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) provider = config.provider();
@@ -622,6 +678,8 @@ public final class AiPanel extends JPanel {
         boolean projectAccess = projectRoot != null && Files.isDirectory(projectRoot);
         String system = buildSystemPrompt(projectAccess);
         List<AiMessage> messages = fitContext(system, requestHistory());
+        contextTokensEstimate = Math.max(0, (system.length() + chars("", messages)) / 4L);
+        updateUsageLabel();
 
         SwingWorker<LoopResult, ProgressEvent> worker = new SwingWorker<>() {
             @Override protected LoopResult doInBackground() throws Exception {
@@ -704,8 +762,9 @@ public final class AiPanel extends JPanel {
                     saveSession();
                     failedPrompt = lastPrompt;
                     retry.setEnabled(failedPrompt != null && !failedPrompt.isBlank());
-                    addBubble(false, t("Request failed: %s", cause.getMessage()), true);
-                    status.setText(t("Request failed: %s", cause.getMessage()));
+                    String friendly = AiErrors.friendly(cause);
+                    addBubble(false, t("Request failed: %s", friendly), true);
+                    status.setText(t("Request failed: %s", friendly));
                     status.setForeground(Theme.DANGER);
                 }
                 conversation.revalidate();
@@ -753,13 +812,24 @@ public final class AiPanel extends JPanel {
             if (!pages.isEmpty()) {
                 StringBuilder summary = new StringBuilder();
                 List<String> errors = new ArrayList<>();
+                boolean createdAny = false;
                 try { lastCheckpoint = ProjectCheckpoints.create(projectRoot, "ai-before-page"); }
                 catch (Exception ignored) { }
                 for (PageRequest page : pages) {
+                    if (!confirmPage(page)) {
+                        summary.append(t("Page creation cancelled.")).append('\n');
+                        continue;
+                    }
                     try {
                         ProjectPageScaffold.Result created = ProjectPageScaffold.create(projectRoot, page.name(), page.title());
                         summary.append(t("Created page: %s", created.className())).append('\n');
+                        createdAny = true;
                         progress.accept(new ProgressEvent(EventKind.WRITE, List.of(created.className())));
+                        invalidateIndex();
+                        if (openFile != null && !created.files().isEmpty()) {
+                            Path fresh = created.files().get(0);
+                            SwingUtilities.invokeLater(() -> openFile.accept(fresh));
+                        }
                     } catch (Exception ex) {
                         errors.add(page.name() + ": " + ex.getMessage());
                     }
@@ -767,7 +837,7 @@ public final class AiPanel extends JPanel {
                 if (errors.isEmpty()) {
                     String validation = validationFailure();
                     if (!validation.isBlank()) summary.append('\n').append(t("Validation issues remain; check the Problems panel."));
-                    return new LoopResult(summary.toString().trim(), promptTokens, completionTokens, totalTokens, cost, true);
+                    return new LoopResult(summary.toString().trim(), promptTokens, completionTokens, totalTokens, cost, createdAny);
                 }
                 summary.append(t("AI could not create page: %s", String.join("; ", errors)));
                 return new LoopResult(summary.toString(), promptTokens, completionTokens, totalTokens, cost, false);
@@ -933,6 +1003,9 @@ public final class AiPanel extends JPanel {
             writes = writes.stream().filter(w -> approved.contains(w.path())).toList();
             deletes = deletes.stream().filter(approved::contains).toList();
         }
+        if (!config.fullAccess() && hasSensitive(writes, deletes) && !confirmSensitive(writes, deletes)) {
+            return new ApplyResult(0, List.of(t("Changes rejected.")));
+        }
         Map<Path, String> undo = new LinkedHashMap<>();
         List<String> errors = new ArrayList<>();
         int changed = 0;
@@ -976,7 +1049,43 @@ public final class AiPanel extends JPanel {
             }
         }
         lastUndo = undo;
+        invalidateIndex();
         return new ApplyResult(changed, errors);
+    }
+
+    private boolean hasSensitive(List<FileWrite> writes, List<String> deletes) {
+        for (FileWrite write : writes) if (sensitive(write.path())) return true;
+        for (String delete : deletes) if (sensitive(delete)) return true;
+        return false;
+    }
+
+    private boolean sensitive(String path) {
+        String lower = path == null ? "" : path.toLowerCase(Locale.ROOT).replace('\\', '/');
+        return lower.contains("release-signing") || lower.contains("keystore")
+                || lower.endsWith(".jks") || lower.endsWith(".keystore");
+    }
+
+    private boolean confirmSensitive(List<FileWrite> writes, List<String> deletes) {
+        final boolean[] approved = {false};
+        Runnable ask = () -> approved[0] = JOptionPane.showConfirmDialog(this,
+                t("This change touches signing or keystore files. Apply it?"),
+                t("Sensitive files"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE) == JOptionPane.YES_OPTION;
+        try { if (SwingUtilities.isEventDispatchThread()) ask.run(); else SwingUtilities.invokeAndWait(ask); }
+        catch (Exception ignored) { }
+        return approved[0];
+    }
+
+    private boolean confirmPage(PageRequest page) {
+        if (config.fullAccess()) return true;
+        final boolean[] approved = {false};
+        Runnable ask = () -> approved[0] = JOptionPane.showConfirmDialog(this,
+                t("Create page %s with its Activity, layout, string and Manifest entry?", page.name()),
+                t("Create page"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
+        try {
+            if (SwingUtilities.isEventDispatchThread()) ask.run();
+            else SwingUtilities.invokeAndWait(ask);
+        } catch (Exception ignored) { }
+        return approved[0];
     }
 
     private java.util.Set<String> approveChanges(List<FileWrite> writes, List<String> deletes) {
@@ -1042,14 +1151,26 @@ public final class AiPanel extends JPanel {
                 String rel = projectRoot.toAbsolutePath().normalize()
                         .relativize(target.toAbsolutePath().normalize()).toString();
                 String old = files.containsKey(rel) ? files.get(rel) : Files.readString(target, StandardCharsets.UTF_8);
-                int first = old.indexOf(patch.search());
+                String needle = patch.search();
+                int first = old.indexOf(needle);
+                if (first < 0 && old.indexOf('\r') >= 0) {
+                    old = old.replace("\r\n", "\n");
+                    needle = needle.replace("\r\n", "\n");
+                    first = old.indexOf(needle);
+                }
+                if (first < 0) {
+                    String looseOld = old.replaceAll("(?m)[ \t]+$", "");
+                    String looseNeedle = needle.replaceAll("(?m)[ \t]+$", "");
+                    first = looseOld.indexOf(looseNeedle);
+                    if (first >= 0) { old = looseOld; needle = looseNeedle; }
+                }
                 if (first < 0) { errors.add(patch.path() + " (SEARCH text not found)"); continue; }
-                if (old.indexOf(patch.search(), first + 1) >= 0) {
+                if (old.indexOf(needle, first + 1) >= 0) {
                     errors.add(patch.path() + " (SEARCH text is not unique)");
                     continue;
                 }
                 files.put(rel, old.substring(0, first) + patch.replace()
-                        + old.substring(first + patch.search().length()));
+                        + old.substring(first + needle.length()));
             } catch (Exception ex) {
                 errors.add(patch.path() + ": " + ex.getMessage());
             }
@@ -1154,6 +1275,7 @@ public final class AiPanel extends JPanel {
             status.setText(t("Undo failed: %s", String.join("; ", errors)));
             status.setForeground(Theme.DANGER);
         }
+        invalidateIndex();
         if (afterFilesChanged != null) afterFilesChanged.run();
     }
 
@@ -1168,17 +1290,45 @@ public final class AiPanel extends JPanel {
             usageLabel.setText(AiPricing.formatTokens(sessionTotal) + " / " + AiPricing.formatTokens(budget)
                     + " tok • ~" + AiPricing.formatCost(sessionCost));
         }
+        if (contextTokensEstimate > 0) usageLabel.setText(usageLabel.getText()
+                + " • ctx ~" + AiPricing.formatTokens(contextTokensEstimate));
     }
+
+    private String indexForContext() {
+        long now = System.currentTimeMillis();
+        if (cachedIndex == null || now - cachedIndexAt > 60_000L) {
+            cachedIndex = ProjectIndex.compact(projectRoot);
+            cachedIndexAt = now;
+        }
+        return cachedIndex;
+    }
+
+    private void invalidateIndex() { cachedIndex = null; }
 
     private String buildSystemPrompt(boolean projectAccess) {
         StringBuilder b = new StringBuilder(SYSTEM_PROMPT);
         if (projectAccess) {
-            b.append("\n\n").append(ProjectIndex.compact(projectRoot));
+            b.append("\n\n").append(indexForContext());
         } else {
             b.append("\n\nProject editing is disabled. Return code in fenced blocks and explain where to apply it.\n");
         }
         String rules = projectRules();
         if (!rules.isBlank()) b.append("\n\nPROJECT RULES:\n").append(rules);
+        if (!pinned.isEmpty()) {
+            b.append("\n\nPINNED FILES:\n");
+            int budget = 12_000;
+            for (Path file : pinned) {
+                if (budget <= 0) break;
+                String rel;
+                try { rel = projectRoot.toAbsolutePath().normalize().relativize(file.toAbsolutePath().normalize()).toString(); }
+                catch (Exception ex) { rel = file.getFileName().toString(); }
+                String content = ProjectContext.readTextFile(projectRoot, rel, Math.min(4_000, budget));
+                if (content != null) {
+                    b.append("===== ").append(rel).append(" =====\n").append(ProjectContext.redactSecrets(content)).append('\n');
+                    budget -= content.length();
+                }
+            }
+        }
         b.append("\n\nCURRENT FILE (").append(fileLabel == null ? "unknown" : fileLabel.get()).append("):\n");
         b.append(limit(currentFileText(), 12_000));
         return b.toString();
@@ -1280,7 +1430,7 @@ public final class AiPanel extends JPanel {
             if (request.start() > 0) b.append("#").append(request.start()).append('-').append(request.end());
             b.append(" =====\n");
             if (content == null) b.append("(File not found, not a text file, or too large.)\n");
-            else b.append(content).append('\n');
+            else b.append(ProjectContext.redactSecrets(content)).append('\n');
         }
         return b.toString();
     }
@@ -1351,7 +1501,7 @@ public final class AiPanel extends JPanel {
     private String currentFileText() {
         SyntaxEditorPane editor = editorProvider == null ? null : editorProvider.get();
         if (editor == null) return "";
-        String current = editor.getText();
+        String current = ProjectContext.redactSecrets(editor.getText());
         if (current.length() > 60_000) current = current.substring(0, 60_000) + "\n... (truncated)";
         String label = fileLabel == null ? "unknown" : fileLabel.get();
         return "Current file: " + label + "\n--- FILE START ---\n" + current + "\n--- FILE END ---";
@@ -1405,6 +1555,22 @@ public final class AiPanel extends JPanel {
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "eluajs-ai-send");
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK), "eluajs-ai-send");
         am.put("eluajs-ai-send", sendAction);
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, InputEvent.ALT_DOWN_MASK), "eluajs-ai-prev");
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, InputEvent.ALT_DOWN_MASK), "eluajs-ai-next");
+        am.put("eluajs-ai-prev", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (promptHistory.isEmpty()) return;
+                promptHistoryIndex = Math.min(promptHistory.size() - 1, promptHistoryIndex + 1);
+                prompt.setText(promptHistory.get(promptHistoryIndex));
+            }
+        });
+        am.put("eluajs-ai-next", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (promptHistory.isEmpty()) return;
+                promptHistoryIndex = Math.max(0, promptHistoryIndex - 1);
+                prompt.setText(promptHistory.get(promptHistoryIndex));
+            }
+        });
     }
 
     private JComponent addStreamingBubble(JTextArea area) {

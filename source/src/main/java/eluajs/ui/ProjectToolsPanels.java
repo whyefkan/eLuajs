@@ -1,11 +1,13 @@
 package eluajs.ui;
 
+import eluajs.android.ToolchainManager;
 import eluajs.git.GitManager;
 import eluajs.project.AccessibilityChecker;
 import eluajs.project.LocalizationManager;
 import eluajs.project.ProjectCheckpoints;
 import eluajs.project.ProjectGradleManager;
 import eluajs.project.ProjectSearch;
+import eluajs.project.ProjectValidator;
 import eluajs.util.FileUtil;
 
 import static eluajs.util.I18n.t;
@@ -26,6 +28,55 @@ import java.util.zip.ZipFile;
 /** Inline panels shown on the right side of the project tools window. */
 final class ProjectToolsPanels {
     private ProjectToolsPanels() {}
+
+    static JPanel health(Path root) {
+        JPanel panel = page(t("Proje Sağlığı"), t("JDK, Android SDK, Gradle ve proje yapısı kontrolleri."));
+        JPanel rows = new JPanel();
+        rows.setOpaque(false);
+        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+        JLabel status = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
+        JButton refresh = Ui.button(t("Yeniden Kontrol Et"), true);
+        Runnable check = () -> {
+            rows.removeAll();
+            addHealthRow(rows, t("JDK"), ToolchainManager.javaReady());
+            addHealthRow(rows, t("Android SDK"), ToolchainManager.sdkReady());
+            addHealthRow(rows, t("Gradle"), ToolchainManager.gradleReady());
+            addHealthRow(rows, t("Build Tools"), ToolchainManager.buildToolsReady());
+            try {
+                ProjectValidator.Report report = ProjectValidator.validate(root);
+                addHealthRow(rows, t("Proje yapısı"), report.ok());
+                status.setText(report.ok() ? t("Temel kontroller geçti.") : t("%d sorun", report.problems().size()));
+                status.setForeground(report.ok() ? Theme.ACCENT : Theme.DANGER);
+            } catch (Exception ex) {
+                addHealthRow(rows, t("Proje yapısı"), false);
+                status.setText(ex.getMessage());
+                status.setForeground(Theme.DANGER);
+            }
+            rows.revalidate();
+            rows.repaint();
+        };
+        refresh.addActionListener(e -> check.run());
+        JScrollPane scroll = Ui.scroll(rows);
+        scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
+        panel.add(scroll, BorderLayout.CENTER);
+        JPanel actions = actions();
+        actions.add(status);
+        actions.add(refresh);
+        panel.add(actions, BorderLayout.SOUTH);
+        check.run();
+        return panel;
+    }
+
+    private static void addHealthRow(JPanel rows, String name, boolean ok) {
+        JPanel row = new JPanel(new BorderLayout());
+        row.setOpaque(false);
+        row.setBorder(new EmptyBorder(7, 8, 7, 8));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
+        row.add(Ui.label(ok ? "✓  " + name : "✕  " + name, 11, Font.BOLD, ok ? Theme.ACCENT : Theme.DANGER), BorderLayout.WEST);
+        row.add(Ui.label(ok ? t("Hazır") : t("Eksik"), 10, Font.PLAIN, Theme.MUTED), BorderLayout.EAST);
+        rows.add(row);
+        rows.add(Box.createVerticalStrut(2));
+    }
 
     static JPanel checkpoints(Path root, Runnable afterRestore) {
         JPanel panel = page(t("Proje Checkpoint'leri"), t("Projeyi anlık görüntüle, geri yükle veya sil."));

@@ -17,7 +17,10 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.zip.ZipFile;
 
@@ -33,12 +36,27 @@ public final class UpdateManager {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
     private static final AtomicBoolean STARTUP_CHECKED = new AtomicBoolean();
+    private static final AtomicBoolean STARTUP_RUNNING = new AtomicBoolean();
+    private static volatile long lastCheckedAt;
+    private static volatile String lastCheckError;
 
     private UpdateManager() {}
 
     public static Release check() throws Exception {
-        return checkStable();
+        try {
+            Release release = checkStable();
+            lastCheckedAt = System.currentTimeMillis();
+            lastCheckError = null;
+            return release;
+        } catch (Exception ex) {
+            lastCheckedAt = System.currentTimeMillis();
+            lastCheckError = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            throw ex;
+        }
     }
+
+    public static long lastCheckedAt() { return lastCheckedAt; }
+    public static String lastCheckError() { return lastCheckError; }
 
     private static Release checkStable() throws Exception {
         String cleaned = OFFICIAL_REPO;
@@ -99,15 +117,31 @@ public final class UpdateManager {
     }
 
     public static void checkOnStartup(Window owner, Consumer<Release> onUpdate) {
-        if (!STARTUP_CHECKED.compareAndSet(false, true)) return;
+        if (STARTUP_CHECKED.get() || !STARTUP_RUNNING.compareAndSet(false, true)) return;
         UpdateConfig cfg = UpdateConfig.load();
-        if (!cfg.autoCheck()) return;
+        if (!cfg.autoCheck()) { STARTUP_RUNNING.set(false); return; }
         SwingWorker<Release, Void> worker = new SwingWorker<>() {
-            @Override protected Release doInBackground() throws Exception { return check(); }
+            @Override protected Release doInBackground() {
+                long[] delay = {0L, 5_000L, 20_000L};
+                for (int attempt = 0; attempt < delay.length; attempt++) {
+                    if (Thread.currentThread().isInterrupted()) return null;
+                    try {
+                        if (delay[attempt] > 0) Thread.sleep(delay[attempt]);
+                        Release release = check();
+                        if (release != null) return release;
+                    } catch (Exception ignored) {
+                        // Silent retry: GitHub API rate limits and temporary network errors are common at startup.
+                    }
+                }
+                return null;
+            }
             @Override protected void done() {
+                STARTUP_RUNNING.set(false);
                 try {
                     Release release = get();
-                    if (release != null && release.newer() && onUpdate != null) onUpdate.accept(release);
+                    if (release == null) return;
+                    STARTUP_CHECKED.set(true);
+                    if (release.newer() && onUpdate != null) onUpdate.accept(release);
                 } catch (Exception ignored) { }
             }
         };
@@ -115,6 +149,10 @@ public final class UpdateManager {
     }
 
     public static void install(Release release) throws Exception {
+        install(release, () -> false);
+    }
+
+    public static void install(Release release, BooleanSupplier cancelled) throws Exception {
         if (release == null || release.assetUrl() == null || release.assetUrl().isBlank()) {
             throw new IOException(I18n.t("No eLuajs.jar asset in the release"));
         }
@@ -126,7 +164,19 @@ public final class UpdateManager {
                 .header("User-Agent", "eLuajs/" + AppInfo.version())
                 .GET()
                 .build();
-        HttpResponse<Path> response = HTTP.send(request, HttpResponse.BodyHandlers.ofFile(temp));
+        CompletableFuture<HttpResponse<Path>> download = HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofFile(temp));
+        while (!download.isDone()) {
+            if (isCancelled(cancelled)) {
+                download.cancel(true);
+                Files.deleteIfExists(temp);
+                throw new InterruptedException(I18n.t("Update cancelled."));
+            }
+            try { Thread.sleep(120); }
+            catch (InterruptedException ex) { download.cancel(true); Files.deleteIfExists(temp); throw ex; }
+        }
+        HttpResponse<Path> response;
+        try { response = download.get(); }
+        catch (Exception ex) { Files.deleteIfExists(temp); throw ex; }
         if (response.statusCode() / 100 != 2) {
             Files.deleteIfExists(temp);
             throw new IOException(I18n.t("Download failed: HTTP %d", response.statusCode()));
@@ -135,6 +185,7 @@ public final class UpdateManager {
             Files.deleteIfExists(temp);
             throw new IOException(I18n.t("Downloaded file is not a valid eLuajs jar"));
         }
+        if (isCancelled(cancelled)) { Files.deleteIfExists(temp); throw new InterruptedException(I18n.t("Update cancelled.")); }
         if (release.checksumUrl() == null || release.checksumUrl().isBlank()) {
             Files.deleteIfExists(temp);
             throw new IOException(I18n.t("Update checksum is missing; update cancelled."));
@@ -145,6 +196,7 @@ public final class UpdateManager {
             Files.deleteIfExists(temp);
             throw new IOException(I18n.t("Update checksum verification failed."));
         }
+        if (isCancelled(cancelled)) { Files.deleteIfExists(temp); throw new InterruptedException(I18n.t("Update cancelled.")); }
         if (Platform.isWindows()) {
             installWindows(jar, temp);
             return;
@@ -155,6 +207,30 @@ public final class UpdateManager {
             Files.move(temp, jar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException ex) {
             Files.move(temp, jar, StandardCopyOption.REPLACE_EXISTING);
+        }
+        if (!jarHealthCheck(jar)) {
+            Files.copy(backup, jar, StandardCopyOption.REPLACE_EXISTING);
+            throw new IOException(I18n.t("New update failed its health check; previous version restored."));
+        }
+    }
+
+    private static boolean isCancelled(BooleanSupplier cancelled) {
+        return cancelled != null && cancelled.getAsBoolean();
+    }
+
+    private static boolean jarHealthCheck(Path jar) {
+        try {
+            Path java = Path.of(System.getProperty("java.home"), "bin",
+                    Platform.isWindows() ? "java.exe" : "java");
+            Process process = new ProcessBuilder(java.toString(), "-jar", jar.toString(), "--self-test")
+                    .redirectErrorStream(true).start();
+            if (!process.waitFor(45, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                return false;
+            }
+            return process.exitValue() == 0;
+        } catch (Exception ex) {
+            return false;
         }
     }
 

@@ -138,6 +138,29 @@ public final class Ui {
         return f;
     }
 
+    public static void toast(Window owner, String message) {
+        if (owner == null || !owner.isShowing()) return;
+        JWindow window = new JWindow(owner);
+        JPanel panel = new JPanel(new BorderLayout(8, 0));
+        panel.setBackground(Theme.PANEL_2);
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(Theme.BORDER),
+                new EmptyBorder(10, 14, 10, 16)));
+        JLabel icon = new JLabel(Icons.icon("check", Theme.ACCENT, 16));
+        panel.add(icon, BorderLayout.WEST);
+        panel.add(label(message, 11, Font.PLAIN, Theme.TEXT), BorderLayout.CENTER);
+        window.setContentPane(panel);
+        window.pack();
+        Point at = owner.getLocationOnScreen();
+        window.setLocation(at.x + owner.getWidth() - window.getWidth() - 28,
+                at.y + owner.getHeight() - window.getHeight() - 42);
+        window.setAlwaysOnTop(true);
+        window.setVisible(true);
+        Timer timer = new Timer(2200, e -> window.dispose());
+        timer.setRepeats(false);
+        timer.start();
+    }
+
     public static void styleSpinner(JSpinner spinner) {
         spinner.setFont(Theme.font(14, Font.PLAIN));
         spinner.setBackground(Theme.PANEL_2);

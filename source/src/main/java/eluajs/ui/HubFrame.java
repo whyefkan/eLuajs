@@ -3,6 +3,8 @@ package eluajs.ui;
 import eluajs.android.ToolchainManager;
 import eluajs.model.ProjectMeta;
 import eluajs.project.ProjectStore;
+import eluajs.project.ProjectFavorites;
+import eluajs.util.AppPaths;
 import eluajs.update.UpdateManager;
 
 import static eluajs.util.I18n.t;
@@ -41,6 +43,8 @@ public final class HubFrame extends JFrame {
     private final JLabel sidebarHint = Ui.label(t("Seç: detay  •  Çift tık: aç"), 10, Font.PLAIN, Theme.MUTED);
     private final AtomicInteger refreshGeneration = new AtomicInteger();
     private ProjectMeta selected;
+    private UpdateManager.Release latestRelease;
+    private JButton updateBadge;
 
     public HubFrame() {
         super(t("eLuajs %s — Hafif Android Java IDE", VERSION));
@@ -67,9 +71,22 @@ public final class HubFrame extends JFrame {
         add(statusBar(), BorderLayout.SOUTH);
         refresh();
         Timer startupUpdate = new Timer(1500, e -> UpdateManager.checkOnStartup(this,
-                release -> new UpdateDialog(this, release).setVisible(true)));
+                release -> {
+                    latestRelease = release;
+                    if (updateBadge != null) {
+                        updateBadge.setText(t("Güncelleme: v%s", release.version()));
+                        updateBadge.setVisible(true);
+                        revalidate();
+                    }
+                    new UpdateDialog(isShowing() ? this : null, release).setVisible(true);
+                }));
         startupUpdate.setRepeats(false);
         startupUpdate.start();
+        if (!Files.exists(AppPaths.config().resolve("onboarding.done"))) {
+            Timer tour = new Timer(700, e -> new WelcomeTourDialog(this).setVisible(true));
+            tour.setRepeats(false);
+            tour.start();
+        }
     }
 
     private JComponent titleBar() {
@@ -91,6 +108,12 @@ public final class HubFrame extends JFrame {
         JLabel tagline = Ui.label(t("Hafif Android Java IDE"), 11, Font.PLAIN, Theme.MUTED);
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
         right.setOpaque(false);
+        updateBadge = Ui.button(t("Güncelleme var"), false);
+        updateBadge.setVisible(false);
+        updateBadge.addActionListener(e -> {
+            if (latestRelease != null) new UpdateDialog(isShowing() ? this : null, latestRelease).setVisible(true);
+        });
+        right.add(updateBadge);
         right.add(tagline);
         right.add(WindowChrome.controls(this));
         bar.add(Ui.centerVertically(right), BorderLayout.EAST);
@@ -426,6 +449,16 @@ public final class HubFrame extends JFrame {
         JButton del = Ui.dangerButton(managed ? t("Sil") : t("Listeden Kaldır"));
         del.setPreferredSize(new Dimension(managed ? 74 : 140, 40));
         del.addActionListener(e -> delete(meta));
+        JButton favorite = Ui.button(ProjectFavorites.isFavorite(meta.rootDir()) ? "★" : "☆", false);
+        favorite.setPreferredSize(new Dimension(44, 40));
+        favorite.setToolTipText(ProjectFavorites.isFavorite(meta.rootDir()) ? t("Favorilerden çıkar") : t("Favorilere ekle"));
+        favorite.addActionListener(e -> {
+            boolean added = ProjectFavorites.toggle(meta.rootDir());
+            favorite.setText(added ? "★" : "☆");
+            favorite.setToolTipText(added ? t("Favorilerden çıkar") : t("Favorilere ekle"));
+            refresh();
+        });
+        actions.add(favorite);
         actions.add(open);
         actions.add(folder);
         actions.add(del);
@@ -525,6 +558,12 @@ public final class HubFrame extends JFrame {
     }
 
     private void renderProjects(List<ProjectMeta> projects) {
+        projects = new java.util.ArrayList<>(projects);
+        projects.sort((a, b) -> {
+            boolean fa = ProjectFavorites.isFavorite(a.rootDir());
+            boolean fb = ProjectFavorites.isFavorite(b.rootDir());
+            return fa == fb ? 0 : fa ? -1 : 1;
+        });
         sidebarModel.clear();
         projectCount.setText(t("%d proje", projects.size()));
         sidebarCount.setText(String.valueOf(projects.size()));
@@ -570,7 +609,10 @@ public final class HubFrame extends JFrame {
         reveal.addActionListener(e -> openFolder(meta.rootDir()));
         JMenuItem del = new JMenuItem(store.isManaged(meta) ? t("Sil") : t("Listeden Kaldır"));
         del.addActionListener(e -> delete(meta));
+        JMenuItem favorite = new JMenuItem(ProjectFavorites.isFavorite(meta.rootDir()) ? t("Favorilerden çıkar") : t("Favorilere ekle"));
+        favorite.addActionListener(e -> { ProjectFavorites.toggle(meta.rootDir()); refresh(); });
         menu.add(open);
+        menu.add(favorite);
         menu.add(reveal);
         menu.addSeparator();
         menu.add(del);

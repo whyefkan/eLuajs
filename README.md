@@ -67,29 +67,30 @@ All links below always point to the **latest release**.
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v157.png) | ![Editor](docs/editor-v157.png) |
+| ![Hub](docs/hub-v158.png) | ![Editor](docs/editor-v158.png) |
 
 <p align="center">
-  <img src="docs/ai-v157.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v158.png" alt="eLuajs AI assistant">
 </p>
 
 <p align="center">
-  <img src="docs/tools-v157.png" alt="eLuajs project tools">
+  <img src="docs/tools-v158.png" alt="eLuajs project tools">
 </p>
 
 <p align="center">
-  <img src="docs/build-v157.png" alt="eLuajs build output window">
+  <img src="docs/build-v158.png" alt="eLuajs build output window">
 </p>
 
 <p align="center">
-  <img src="docs/output-v157.png" alt="eLuajs output chooser">
+  <img src="docs/output-v158.png" alt="eLuajs output chooser">
 </p>
 
 ## Features
 
 - **VS Code-style shell** — activity bar, explorer sidebar, multi-file tabs, split view, output/problems/search panel, custom window controls, dark, light and pure-black themes with theme-aware scrollbars.
 - **Editor built for coding** — syntax highlighting, line numbers, undo/redo (`Ctrl+Z` / `Ctrl+Y`), auto-indent, bracket matching, editor find/replace, zoom, block folding, `Ctrl+Space` completion, `Ctrl+Shift+F` project search and automatic imports.
-- **Project tools** — import existing Android projects, starter templates, file/folder/layout operations, new activities, Java classes, assets, Gradle libraries, permissions and AndroidManifest editing.
+- **Project tools** — import existing Android projects, starter templates, file/folder/layout operations, new activities, Java classes, assets, Gradle libraries, permissions, AndroidManifest editing and a project health dashboard.
+- **Workspace polish** — accent color presets, outline panel, clickable breadcrumb, tab context actions, file-tree F2/Delete, search/problem filters, onboarding, template cards, pinned projects and toast notifications.
 - **Project settings** — compile/min/target SDK, versionCode/versionName and Gradle performance options.
 - **One-click output** — debug APK or signed Play Store AAB, artifact manager, ADB install, versionCode increment, with build logs and click-to-open error locations.
 - **Git integration** — status, diff, stage, commit, pull/push, branches and checkout.
@@ -97,7 +98,7 @@ All links below always point to the **latest release**.
 - **AI 2.0** — diff approval, one-click build fix, local Ollama and optional token budget.
 - **AI workspace (1.5.7)** — compact project index, token budgeting, read ranges/search, patch edits, page scaffolding, linked-file context, validation repair, provider retries/prompt caching and AI checkpoints.
 - **Six languages** — English, Turkish, German, French, Spanish and Russian.
-- **Reliability** — crash log, stable-only auto-update and recovery copies for file edits.
+- **Reliability** — crash log, stable-only auto-update with startup retries, cancellable downloads, health rollback and recovery copies for file edits.
 - **Keyboard-friendly** — `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` redo, `Ctrl+Shift+F` search, `Ctrl+Shift+N` new class, `Ctrl+Alt+A` AI panel, `Ctrl+\` split view, `Ctrl+Space` completion, **Enter** send chat, **Shift+Enter** new line.
 
 ## Quick start
@@ -130,7 +131,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - `1.5.4` added the custom output chooser window and made AI continue after file-reading replies.
 - `1.5.5` was the reliability pack: autosave/session restore, project watcher, build cancel/clean/offline/retry, quick open, command palette, line operations, ADB logcat, AI stop/retry/audit and project rules.
 - `1.5.6` added the redesigned project tools hub with inline settings, checkpoints, accessibility, notes, references, translations, assets, Gradle libraries, permissions, APK diff, release notes and focus mode, plus English/Turkish UI fixes.
-- `1.5.7` is the AI workspace update: compact project index, token budgeting, read ranges/search, patch edits, page scaffolding, linked-file context, validation repair, provider retries/prompt caching, and AI checkpoints.
+- `1.5.7` was the AI workspace update: compact project index, token budgeting, read ranges/search, patch edits, page scaffolding, linked-file context, validation repair, provider retries/prompt caching, and AI checkpoints.
+- `1.5.8` is the final 1.5-series polish pack: reliable startup update checks, update badges/last-check status, cancellable updates with health rollback, AI cancellation/error/context panels, cached indexes, patch conflict recovery, page-creation UX, secret redaction, sensitive-file confirmation and diagnostics copy. It also adds accent themes, toasts, fuzzy command palette, outline panel, clickable breadcrumb, tab/file shortcuts, problem/search filters, onboarding, AI prompt history/pinned context/slash commands, project health, template cards, pinned projects and logcat filters.
 - Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.

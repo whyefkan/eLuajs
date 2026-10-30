@@ -12,9 +12,31 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Minimal multi-provider AI client with no external dependencies. */
 public final class AiClient {
+    private static final AtomicReference<AutoCloseable> ACTIVE_STREAM = new AtomicReference<>();
+    private static final AtomicBoolean CANCELLED = new AtomicBoolean();
+
+    public static void cancelActive() {
+        CANCELLED.set(true);
+        AutoCloseable stream = ACTIVE_STREAM.getAndSet(null);
+        if (stream != null) try { stream.close(); } catch (Exception ignored) { }
+    }
+
+    private static void beginRequest() {
+        CANCELLED.set(false);
+        ACTIVE_STREAM.set(null);
+    }
+
+    private static void checkCancelled() throws InterruptedException {
+        if (CANCELLED.get() || Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("AI request cancelled");
+        }
+    }
+
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -27,7 +49,7 @@ public final class AiClient {
     private static <T> HttpResponse<T> sendWithRetry(HttpRequest request, HttpResponse.BodyHandler<T> handler) throws Exception {
         Exception last = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            if (Thread.currentThread().isInterrupted()) throw new InterruptedException("AI request cancelled");
+            checkCancelled();
             try {
                 HttpResponse<T> response = HTTP.send(request, handler);
                 int status = response.statusCode();
@@ -55,6 +77,7 @@ public final class AiClient {
 
     public static AiResult completeStreaming(AiConfig cfg, String system, List<AiMessage> messages,
                                              java.util.function.Consumer<String> onDelta) throws Exception {
+        beginRequest();
         AiProvider provider = cfg.provider();
         if (onDelta == null) return completeDetailed(cfg, system, messages);
         String model = cfg.activeModel();
@@ -77,9 +100,12 @@ public final class AiClient {
         }
         StringBuilder text = new StringBuilder();
         long prompt = 0, completion = 0, total = 0;
-        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+        java.io.InputStream streamBody = response.body();
+        ACTIVE_STREAM.set(streamBody);
+        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(streamBody, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
+                checkCancelled();
                 if (!line.startsWith("data:")) continue;
                 String data = line.substring(5).trim();
                 if (data.equals("[DONE]")) break;
@@ -115,6 +141,8 @@ public final class AiClient {
                     }
                 } catch (Exception ignored) { }
             }
+        } finally {
+            ACTIVE_STREAM.compareAndSet(streamBody, null);
         }
         if (text.isEmpty()) throw new IOException(I18n.t("Empty response from the provider."));
         if (completion <= 0) completion = Math.max(1, text.length() / 4);
@@ -129,6 +157,7 @@ public final class AiClient {
     }
 
     public static AiResult completeDetailed(AiConfig cfg, String system, List<AiMessage> messages) throws Exception {
+        beginRequest();
         AiProvider provider = cfg.provider();
         String model = cfg.activeModel();
         String key = cfg.activeKey();

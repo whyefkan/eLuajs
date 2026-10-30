@@ -4083,4 +4083,95 @@ public final class I18n {
         tr("Validation issues remain; check the Problems panel.", "Doğrulama sorunları devam ediyor; Sorunlar panelini kontrol edin.");
     }
 
+    static {
+        en("Güncelleme var", "Update available");
+        en("Güncelleme: v%s", "Update: v%s");
+        tr("Update cancelled.", "Güncelleme iptal edildi.");
+        tr("New update failed its health check; previous version restored.", "Yeni güncelleme sağlık kontrolünden geçemedi; önceki sürüm geri yüklendi.");
+    }
+
+    static {
+        tr("Create page %s with its Activity, layout, string and Manifest entry?", "%s sayfası Activity, layout, string ve Manifest kaydıyla oluşturulsun mu?");
+        tr("Create page", "Sayfa oluştur");
+        tr("Page creation cancelled.", "Sayfa oluşturma iptal edildi.");
+        tr("This change touches signing or keystore files. Apply it?", "Bu değişiklik imzalama veya keystore dosyalarına dokunuyor. Uygulansın mı?");
+        tr("Sensitive files", "Hassas dosyalar");
+        tr("AI authentication failed. Check the API key in Settings.", "AI kimlik doğrulaması başarısız. Ayarlar'daki API anahtarını kontrol edin.");
+        tr("AI quota or billing limit reached. Check your provider account.", "AI kotası veya faturalama sınırı doldu. Sağlayıcı hesabınızı kontrol edin.");
+        tr("AI rate limit reached. Wait a moment and retry.", "AI hız sınırına ulaşıldı. Kısa bir süre bekleyip tekrar deneyin.");
+        tr("The request is too large for this model. Use a smaller context or a larger model.", "İstek bu model için çok büyük. Daha küçük context veya daha güçlü model kullanın.");
+        tr("The AI request timed out. Check your connection and retry.", "AI isteği zaman aşımına uğradı. Bağlantınızı kontrol edip tekrar deneyin.");
+        tr("Could not reach the AI provider. Check your internet connection.", "AI sağlayıcısına ulaşılamadı. İnternet bağlantınızı kontrol edin.");
+        tr("The provider returned an empty response. Retry or choose another model.", "Sağlayıcı boş yanıt döndürdü. Tekrar deneyin veya başka model seçin.");
+        tr("Unknown AI error.", "Bilinmeyen AI hatası.");
+    }
+
+    static {
+        en("Copy diagnostics", "Copy diagnostics");
+        en("Diagnostics copied.", "Diagnostics copied.");
+        en("Could not copy diagnostics: %s", "Could not copy diagnostics: %s");
+        tr("Copy diagnostics", "Tanılama bilgilerini kopyala");
+        tr("Diagnostics copied.", "Tanılama bilgileri kopyalandı.");
+        tr("Could not copy diagnostics: %s", "Tanılama bilgileri kopyalanamadı: %s");
+    }
+
+    static {
+        en("Last update check: %s", "Last update check: %s");
+        en("Last update check failed: %s", "Last update check failed: %s");
+        tr("Last update check: %s", "Son güncelleme kontrolü: %s");
+        tr("Last update check failed: %s", "Son güncelleme kontrolü başarısız: %s");
+    }
+
+    static {
+        en("Vurgu rengi", "Accent color");
+        en("Mint", "Mint");
+        en("Blue", "Blue");
+        en("Purple", "Purple");
+        en("Orange", "Orange");
+        en("Pink", "Pink");
+        tr("Mint", "Nane");
+        tr("Blue", "Mavi");
+        tr("Purple", "Mor");
+        tr("Orange", "Turuncu");
+        tr("Pink", "Pembe");
+    }
+
+    static {
+        en("Hiçbiri", "None");
+        en("Sabit context: geçerli dosyayı AI'ya ekle", "Pinned context: add the current file for AI");
+        en("Log dosyasını kaydet", "Save log file");
+        en("Arama geçmişi", "Search history");
+        en("Git durumunu aç", "Open Git status");
+        en("Henüz arama yok.", "No searches yet.");
+        en("JDK, SDK, Gradle ve proje yapısı", "JDK, SDK, Gradle and project structure");
+        en("Proje Sağlığı", "Project Health");
+        en("Sağdaki Sekmeleri Kapat", "Close Tabs to the Right");
+        en("Sembol bulunamadı.", "No symbols found.");
+        en("Tümü", "All");
+        en("Uyarılar", "Warnings");
+        en("Yolu kopyala veya klasörü aç", "Copy path or open folder");
+        en("Favorilerden çıkar", "Remove from favorites");
+        en("JDK, Android SDK, Gradle ve proje yapısı kontrolleri.", "JDK, Android SDK, Gradle and project structure checks.");
+        en("Proje yapısı", "Project structure");
+        en("Temel kontroller geçti.", "Basic checks passed.");
+        en("AI ile üret", "Build with AI");
+        en("Başla", "Start");
+        en("Ctrl+Alt+A asistanı aç; /page, /fix ve /explain komutlarını dene.", "Open the assistant with Ctrl+Alt+A; try /page, /fix and /explain.");
+        en("Dosyaları düzenle", "Edit files");
+        en("FILES ve OUTLINE sekmelerini kullan; Ctrl+P ile hızlı dosya aç.", "Use FILES and OUTLINE; open files quickly with Ctrl+P.");
+        en("Hub'dan New Project ile gerçek Gradle projesi aç.", "Create a real Gradle project from the Hub with New Project.");
+        en("Hızlı başlangıç", "Quick start");
+        en("Validate ve Get output ile APK veya AAB üret.", "Use Validate and Get output to build an APK or AAB.");
+        en("Yeni proje oluştur", "Create a new project");
+        en("eLuajs hafif kalır: tek tıkla proje, kod, doğrulama ve APK/AAB.", "eLuajs stays lightweight: project, code, validation and APK/AAB in one place.");
+        en("eLuajs'a hoş geldin", "Welcome to eLuajs");
+    }
+
+    static {
+        en("TODO / FIXME tara", "Scan TODO / FIXME");
+        en("%d TODO/FIXME bulundu.", "%d TODO/FIXME found.");
+        en("TODO taraması başarısız: %s", "TODO scan failed: %s");
+        en("Projede TODO / FIXME tara", "Scan TODO / FIXME in project");
+    }
+
 }

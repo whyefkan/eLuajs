@@ -117,6 +117,16 @@ public final class ProjectContext {
     }
 
     /** Resolves a model-supplied relative path, rejecting escapes and generated/output folders. */
+    /** Masks common secrets before project content is sent to a model. */
+    public static String redactSecrets(String text) {
+        if (text == null || text.isEmpty()) return "";
+        return text
+                .replaceAll("(?im)^(\\s*authorization\\s*[:=]\\s*).*$", "$1<redacted>")
+                .replaceAll("(?im)((?:api[_-]?key|secret|password|token)\\s*[=:]\\s*)[^\\s\"']+", "$1<redacted>")
+                .replaceAll("\\bsk-[A-Za-z0-9_-]{20,}\\b", "<redacted>")
+                .replaceAll("\\bgh[pousr]_[A-Za-z0-9]{20,}\\b", "<redacted>");
+    }
+
     public static Path safeResolve(Path root, String relative) {
         if (root == null || relative == null) return null;
         String rel = relative.trim().replace('\\', '/');

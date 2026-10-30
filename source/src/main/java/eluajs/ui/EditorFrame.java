@@ -74,22 +74,30 @@ public final class EditorFrame extends JFrame {
     private final JPanel sidebarBody = new JPanel(sidebarCards);
     private Ui.ActivityButton filesActivity;
     private Ui.ActivityButton pagesActivity;
+    private Ui.ActivityButton outlineActivity;
     private Ui.ActivityButton aiActivity;
     private AiPanel aiPanel;
     private JComponent activityBarComponent;
     private JComponent sidebarComponent;
     private JComponent statusBarComponent;
     private boolean focusMode;
+    private final DefaultListModel<OutlineEntry> outlineModel = new DefaultListModel<>();
+    private final JList<OutlineEntry> outlineList = new JList<>(outlineModel);
     private final CardLayout bottomCards = new CardLayout();
     private final JPanel bottomContent = new JPanel(bottomCards);
     private final JPanel bottomTabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
     private final Map<String, JButton> bottomTabButtons = new HashMap<>();
     private final DefaultListModel<Problem> problemsModel = new DefaultListModel<>();
-    private final JList<Problem> problemsList = new JList<>(problemsModel);
+    private final DefaultListModel<Problem> problemsView = new DefaultListModel<>();
+    private final JList<Problem> problemsList = new JList<>(problemsView);
+    private final JComboBox<String> problemFilter = new JComboBox<>(new String[]{t("Tümü"), t("Hatalar"), t("Uyarılar")});
+    private final JTextField problemQuery = Ui.field();
     private final JLabel problemsStatus = Ui.label(t("Sorun yok."), 11, Font.PLAIN, Theme.MUTED);
     private final JTextField searchQuery = Ui.field();
     private final JTextField searchReplace = Ui.field();
     private final JCheckBox searchCase = new JCheckBox(t("Büyük/küçük harf duyarlı"));
+    private final JCheckBox searchWord = new JCheckBox(t("Tam kelime"));
+    private final java.util.List<String> searchHistory = new java.util.ArrayList<>();
     private final DefaultListModel<ProjectSearch.Match> searchModel = new DefaultListModel<>();
     private final JList<ProjectSearch.Match> searchResults = new JList<>(searchModel);
     private final JLabel searchStatus = Ui.label(t("Aranacak metni yazın."), 11, Font.PLAIN, Theme.MUTED);
@@ -116,7 +124,8 @@ public final class EditorFrame extends JFrame {
                 meta.rootDir(),
                 this::hideAiPanel,
                 this::saveCurrentSilently,
-                this::refreshAfterAiEdit);
+                this::refreshAfterAiEdit,
+                this::openFile);
         setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         setIconImage(Ui.appIcon());
         setSize(1320, 820);
@@ -230,6 +239,9 @@ public final class EditorFrame extends JFrame {
 
         pagesActivity = Ui.activityButton("pages", t("Sayfalar"), () -> showSidebar("pages"));
         bar.add(pagesActivity);
+        bar.add(Box.createVerticalStrut(4));
+        outlineActivity = Ui.activityButton("search", t("Outline"), () -> showSidebar("outline"));
+        bar.add(outlineActivity);
         bar.add(Box.createVerticalStrut(14));
 
         bar.add(Ui.activityButton("search", t("Projede ara (Ctrl+Shift+F)"), this::showProjectSearch));
@@ -292,9 +304,76 @@ public final class EditorFrame extends JFrame {
         sidebarBody.setBackground(Theme.PANEL);
         sidebarBody.add(filesPanel(), "files");
         sidebarBody.add(pagesPanel(), "pages");
+        sidebarBody.add(outlinePanel(), "outline");
         side.add(sidebarBody, BorderLayout.CENTER);
         showSidebar("files");
         return side;
+    }
+
+    private JComponent outlinePanel() {
+        outlineList.setBackground(Theme.PANEL);
+        outlineList.setForeground(Theme.TEXT);
+        outlineList.setSelectionBackground(Theme.SELECTION);
+        outlineList.setSelectionForeground(Theme.TEXT);
+        outlineList.setFont(Theme.mono(11));
+        outlineList.setFixedCellHeight(28);
+        outlineList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                    boolean selected, boolean focus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, false);
+                if (value instanceof OutlineEntry entry) label.setText(entry.label());
+                label.setBorder(new EmptyBorder(3, 10, 3, 6));
+                label.setBackground(selected ? Theme.SELECTION : Theme.PANEL);
+                label.setForeground(Theme.TEXT);
+                return label;
+            }
+        });
+        outlineList.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() != 2) return;
+                OutlineEntry entry = outlineList.getSelectedValue();
+                if (entry == null || activeTab == null) return;
+                int line = Math.max(0, entry.line() - 1);
+                try {
+                    Element root = activeTab.pane.getDocument().getDefaultRootElement();
+                    Element el = root.getElement(Math.min(line, root.getElementCount() - 1));
+                    activeTab.pane.setCaretPosition(el.getStartOffset());
+                    activeTab.pane.requestFocusInWindow();
+                } catch (Exception ignored) { }
+            }
+        });
+        JScrollPane scroll = Ui.scroll(outlineList);
+        scroll.setBorder(null);
+        scroll.getViewport().setBackground(Theme.PANEL);
+        return scroll;
+    }
+
+    private void refreshOutline() {
+        outlineModel.clear();
+        if (activeTab == null || activeTab.file == null) return;
+        String name = activeTab.file.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        String text = activeTab.pane.getText();
+        String[] lines = text.split("\\R", -1);
+        if (name.endsWith(".java") || name.endsWith(".kt")) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "^\\s*(?:(?:public|private|protected|static|final|abstract|synchronized|native)\\s+)*(?:class|interface|enum|record)\\s+([A-Za-z_$][A-Za-z0-9_$]*)"
+                    + "|^\\s*(?:(?:public|private|protected|static|final|abstract|synchronized|native)\\s+)+[A-Za-z_$][A-Za-z0-9_$<>, ?\\[\\]]*\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\(");
+            for (int i = 0; i < lines.length; i++) {
+                java.util.regex.Matcher m = p.matcher(lines[i]);
+                if (m.find()) {
+                    String symbol = m.group(1) != null ? m.group(1) : m.group(2);
+                    if (symbol != null && !symbol.equals("if") && !symbol.equals("for") && !symbol.equals("while"))
+                        outlineModel.addElement(new OutlineEntry(symbol, i + 1));
+                }
+            }
+        } else if (name.endsWith(".xml")) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("android:id\\s*=\\s*[\"']@\\+id/([A-Za-z0-9_]+)[\"']");
+            for (int i = 0; i < lines.length; i++) {
+                java.util.regex.Matcher m = p.matcher(lines[i]);
+                if (m.find()) outlineModel.addElement(new OutlineEntry("#" + m.group(1), i + 1));
+            }
+        }
+        if (outlineModel.isEmpty()) outlineModel.addElement(new OutlineEntry(t("Sembol bulunamadı."), 1));
     }
 
     private JComponent filesPanel() {
@@ -311,6 +390,20 @@ public final class EditorFrame extends JFrame {
             @Override public void mousePressed(MouseEvent e) { if (e.isPopupTrigger()) showTreeMenu(e); }
             @Override public void mouseReleased(MouseEvent e) { if (e.isPopupTrigger()) showTreeMenu(e); }
         });
+        tree.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_F2, 0), "tree-rename");
+        tree.getActionMap().put("tree-rename", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                Path selected = treeSelectedPath();
+                if (selected != null && !selected.equals(meta.rootDir())) renameTreePath(selected);
+            }
+        });
+        tree.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0), "tree-delete");
+        tree.getActionMap().put("tree-delete", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) {
+                Path selected = treeSelectedPath();
+                if (selected != null && !selected.equals(meta.rootDir())) deleteTreePath(selected);
+            }
+        });
         JScrollPane treeScroll = Ui.scroll(tree);
         treeScroll.getViewport().setBackground(Theme.PANEL);
         treeScroll.setBorder(null);
@@ -320,9 +413,13 @@ public final class EditorFrame extends JFrame {
     private void showSidebar(String view) {
         sidebarCards.show(sidebarBody, view);
         boolean files = "files".equals(view);
-        sidebarTitle.setText(files ? t("DOSYALAR") : t("SAYFALAR"));
+        boolean pages = "pages".equals(view);
+        boolean outline = "outline".equals(view);
+        sidebarTitle.setText(files ? t("DOSYALAR") : pages ? t("SAYFALAR") : t("OUTLINE"));
         if (filesActivity != null) filesActivity.setActive(files);
-        if (pagesActivity != null) pagesActivity.setActive(!files);
+        if (pagesActivity != null) pagesActivity.setActive(pages);
+        if (outlineActivity != null) outlineActivity.setActive(outline);
+        if (outline) refreshOutline();
     }
 
     private JComponent workspace() {
@@ -418,6 +515,37 @@ public final class EditorFrame extends JFrame {
 
         JPanel editorHead = new JPanel(new BorderLayout());
         editorHead.setBackground(Theme.EDITOR);
+        JPanel pathBar = new JPanel(new BorderLayout(8, 0));
+        pathBar.setBackground(Theme.TAB_BAR);
+        pathBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(4, 12, 4, 12)));
+        breadcrumb.setToolTipText(t("Yolu kopyala veya klasörü aç"));
+        breadcrumb.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        breadcrumb.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                if (openedFile == null) return;
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    JPopupMenu menu = new JPopupMenu();
+                    JMenuItem copy = new JMenuItem(t("Dosya Yolunu Kopyala"));
+                    copy.addActionListener(a -> Toolkit.getDefaultToolkit().getSystemClipboard()
+                            .setContents(new java.awt.datatransfer.StringSelection(openedFile.toString()), null));
+                    JMenuItem reveal = new JMenuItem(t("Klasörü Aç"));
+                    reveal.addActionListener(a -> {
+                        try { Desktop.getDesktop().open(openedFile.getParent().toFile()); }
+                        catch (Exception ignored) { }
+                    });
+                    menu.add(copy); menu.add(reveal);
+                    menu.show(breadcrumb, e.getX(), e.getY());
+                } else if (SwingUtilities.isLeftMouseButton(e)) {
+                    try { Desktop.getDesktop().open(openedFile.getParent().toFile()); }
+                    catch (Exception ignored) { }
+                }
+            }
+        });
+        pathBar.add(breadcrumb, BorderLayout.WEST);
+        pathBar.add(currentFile, BorderLayout.EAST);
+        editorHead.add(pathBar, BorderLayout.NORTH);
         editorHead.add(editorSplit, BorderLayout.CENTER);
 
         JPanel editorPanel = new JPanel(new BorderLayout());
@@ -540,9 +668,24 @@ public final class EditorFrame extends JFrame {
         JPanel panel = new JPanel(new BorderLayout(0, 6));
         panel.setBackground(Theme.CONSOLE);
         panel.setBorder(new EmptyBorder(8, 12, 8, 12));
-        JPanel statusRow = new JPanel(new BorderLayout());
+        JPanel statusRow = new JPanel(new BorderLayout(8, 0));
         statusRow.setOpaque(false);
         statusRow.add(problemsStatus, BorderLayout.WEST);
+        JPanel filters = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        filters.setOpaque(false);
+        Ui.styleCombo(problemFilter);
+        problemFilter.setPreferredSize(new Dimension(92, 26));
+        problemFilter.addActionListener(e -> refreshProblemsView());
+        problemQuery.putClientProperty("JTextField.placeholderText", t("Sorunlarda ara"));
+        problemQuery.setPreferredSize(new Dimension(180, 26));
+        problemQuery.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { refreshProblemsView(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { refreshProblemsView(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { }
+        });
+        filters.add(problemQuery);
+        filters.add(problemFilter);
+        statusRow.add(filters, BorderLayout.EAST);
         panel.add(statusRow, BorderLayout.NORTH);
 
         problemsList.setBackground(Theme.CONSOLE);
@@ -561,6 +704,7 @@ public final class EditorFrame extends JFrame {
         scroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
         scroll.getViewport().setBackground(Theme.CONSOLE);
         panel.add(scroll, BorderLayout.CENTER);
+        refreshProblemsView();
         return panel;
     }
 
@@ -584,8 +728,16 @@ public final class EditorFrame extends JFrame {
         searchCase.setForeground(Theme.MUTED);
         searchCase.setFont(Theme.font(11, Font.PLAIN));
         searchCase.setFocusPainted(false);
+        searchWord.setOpaque(false);
+        searchWord.setForeground(Theme.MUTED);
+        searchWord.setFont(Theme.font(11, Font.PLAIN));
+        searchWord.setFocusPainted(false);
+        JButton history = compact("↺", t("Arama geçmişi"));
+        history.addActionListener(e -> showSearchHistory(history));
         searchButton.addActionListener(e -> runSearch());
+        searchActions.add(searchWord);
         searchActions.add(searchCase);
+        searchActions.add(history);
         searchActions.add(searchButton);
         firstRow.add(searchActions, BorderLayout.EAST);
 
@@ -632,19 +784,35 @@ public final class EditorFrame extends JFrame {
         showBottomCard("problems");
     }
 
+    private void refreshProblemsView() {
+        problemsView.clear();
+        String query = problemQuery.getText() == null ? "" : problemQuery.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        int filter = problemFilter.getSelectedIndex();
+        for (int i = 0; i < problemsModel.size(); i++) {
+            Problem problem = problemsModel.get(i);
+            if (filter == 1 && problem.severity() != Problem.Severity.ERROR) continue;
+            if (filter == 2 && problem.severity() != Problem.Severity.WARNING) continue;
+            String text = problem.toString().toLowerCase(java.util.Locale.ROOT);
+            if (!query.isBlank() && !text.contains(query)) continue;
+            problemsView.addElement(problem);
+        }
+        problemsStatus.setText(problemsModel.isEmpty() ? t("Sorun yok.")
+                : t("%d sorun", problemsView.size()) + (problemsView.size() == problemsModel.size() ? "" : " / " + problemsModel.size()));
+    }
+
     private void addProblem(Problem problem) {
         if (problem == null) return;
         for (int i = 0; i < problemsModel.size(); i++) {
             if (problemsModel.get(i).equals(problem)) return;
         }
         problemsModel.addElement(problem);
-        problemsStatus.setText(t("%d sorun", problemsModel.size()));
+        refreshProblemsView();
         updateProblemsTab();
     }
 
     private void clearProblems() {
         problemsModel.clear();
-        problemsStatus.setText(t("Sorun yok."));
+        refreshProblemsView();
         updateProblemsTab();
     }
 
@@ -658,6 +826,25 @@ public final class EditorFrame extends JFrame {
         if (match != null) openFileAtLine(match.file(), match.line());
     }
 
+    private void showSearchHistory(JButton anchor) {
+        JPopupMenu popup = new JPopupMenu();
+        if (searchHistory.isEmpty()) {
+            JMenuItem empty = new JMenuItem(t("Henüz arama yok."));
+            empty.setEnabled(false);
+            popup.add(empty);
+        } else {
+            for (String item : searchHistory) {
+                JMenuItem menuItem = new JMenuItem(item);
+                menuItem.addActionListener(e -> {
+                    searchQuery.setText(item);
+                    runSearch();
+                });
+                popup.add(menuItem);
+            }
+        }
+        popup.show(anchor, 0, anchor.getHeight());
+    }
+
     private void runSearch() {
         if (!searchButton.isEnabled()) return;
         String query = searchQuery.getText().trim();
@@ -666,6 +853,9 @@ public final class EditorFrame extends JFrame {
             searchStatus.setText(t("Aranacak metin boş olamaz."));
             return;
         }
+        searchHistory.remove(query);
+        searchHistory.add(0, query);
+        while (searchHistory.size() > 12) searchHistory.remove(searchHistory.size() - 1);
         searchButton.setEnabled(false);
         searchModel.clear();
         updateSearchTab();
@@ -677,7 +867,12 @@ public final class EditorFrame extends JFrame {
             @Override protected void done() {
                 searchButton.setEnabled(true);
                 try {
-                    List<ProjectSearch.Match> found = get();
+                    List<ProjectSearch.Match> found = new java.util.ArrayList<>(get());
+                    if (searchWord.isSelected()) {
+                        java.util.regex.Pattern whole = java.util.regex.Pattern.compile(
+                                "(?i)\\b" + java.util.regex.Pattern.quote(query) + "\\b");
+                        found.removeIf(m -> !whole.matcher(m.preview()).find());
+                    }
                     found.forEach(searchModel::addElement);
                     searchStatus.setText(t("%d sonuç", found.size())
                             + (found.size() >= 500 ? t(" (ilk 500)") : "")
@@ -957,6 +1152,8 @@ public final class EditorFrame extends JFrame {
         close.addActionListener(e -> closeTab(tab));
         JMenuItem closeOthers = new JMenuItem(t("Diğerlerini Kapat"));
         closeOthers.addActionListener(e -> closeOtherTabs(tab));
+        JMenuItem closeRight = new JMenuItem(t("Sağdaki Sekmeleri Kapat"));
+        closeRight.addActionListener(e -> closeTabsRight(tab));
         JMenuItem closeAll = new JMenuItem(t("Tüm Sekmeleri Kapat"));
         closeAll.addActionListener(e -> closeAllTabs());
         JMenuItem copyPath = new JMenuItem(t("Dosya Yolunu Kopyala"));
@@ -973,6 +1170,7 @@ public final class EditorFrame extends JFrame {
         menu.addSeparator();
         menu.add(close);
         menu.add(closeOthers);
+        menu.add(closeRight);
         menu.add(closeAll);
         menu.addSeparator();
         menu.add(copyPath);
@@ -1028,6 +1226,14 @@ public final class EditorFrame extends JFrame {
             syncActiveTab();
         }
         if (!restoringSession) saveSession();
+    }
+
+    private void closeTabsRight(EditorTab keep) {
+        int from = editorTabs.indexOfComponent(keep);
+        if (from < 0) return;
+        for (int i = editorTabs.getTabCount() - 1; i > from; i--) {
+            if (editorTabs.getComponentAt(i) instanceof EditorTab tab && !closeTab(tab)) return;
+        }
     }
 
     private void closeOtherTabs(EditorTab keep) {
@@ -1148,6 +1354,8 @@ public final class EditorFrame extends JFrame {
         if (!restoringSession) saveSession();
     }
 
+    private record OutlineEntry(String label, int line) { }
+
     private final class EditorTab extends JPanel {
         private final Path file;
         private final SyntaxEditorPane pane;
@@ -1240,7 +1448,16 @@ public final class EditorFrame extends JFrame {
         left.setOpaque(false);
         left.add(Ui.statusLabel(t("Java / Android")));
         left.add(Ui.statusLabel(meta.packageName()));
+        branchStatus.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        branchStatus.setToolTipText(t("Git durumunu aç"));
+        branchStatus.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent e) {
+                new GitDialog(EditorFrame.this, meta.rootDir()).setVisible(true);
+                refreshBranchStatus();
+            }
+        });
         left.add(branchStatus);
+        left.add(Ui.statusLabel("LF"));
         bar.add(left, BorderLayout.WEST);
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
@@ -1336,6 +1553,8 @@ public final class EditorFrame extends JFrame {
                             appendConsole(t("Proje ayarları kaydedildi."));
                             reloadTree();
                         })),
+                new ProjectToolsDialog.Tool(t("Proje Sağlığı"), t("JDK, SDK, Gradle ve proje yapısı"),
+                        () -> ProjectToolsPanels.health(meta.rootDir())),
                 new ProjectToolsDialog.Tool(t("Proje Checkpoint'leri"), t("Projeyi anlık görüntüle ve geri yükle"),
                         () -> ProjectToolsPanels.checkpoints(meta.rootDir(), this::reloadTree)),
                 new ProjectToolsDialog.Tool(t("Erişilebilirlik Denetçisi"), t("XML layout erişilebilirlik sorunları"),
@@ -1478,9 +1697,25 @@ public final class EditorFrame extends JFrame {
         commands.add(new CommandPaletteDialog.Command(t("Yeni Java sınıfı"), "Ctrl+Shift+N", this::newJavaClass));
         commands.add(new CommandPaletteDialog.Command(t("Bölmeyi Aç/Kapat"), "Ctrl+\\", this::toggleSplit));
         commands.add(new CommandPaletteDialog.Command(t("Focus Mode"), "", this::toggleFocusMode));
+        commands.add(new CommandPaletteDialog.Command(t("TODO / FIXME tara"), "", this::scanTodos));
         commands.add(new CommandPaletteDialog.Command(t("Dosya ağacını yenile"), "", this::reloadTree));
         commands.add(new CommandPaletteDialog.Command(t("Yapay Zeka Asistanı"), "Ctrl+Alt+A", this::toggleAiPanel));
         new CommandPaletteDialog(this, commands).setVisible(true);
+    }
+
+    private void scanTodos() {
+        clearProblems();
+        try {
+            List<ProjectSearch.Match> matches = ProjectSearch.search(meta.rootDir(), "TODO", false, 300);
+            matches.addAll(ProjectSearch.search(meta.rootDir(), "FIXME", false, 300));
+            for (ProjectSearch.Match match : matches) {
+                addProblem(Problem.warning(match.file(), match.line(), "TODO/FIXME: " + match.preview()));
+            }
+            showBottomCard("problems");
+            appendConsole(t("%d TODO/FIXME bulundu.", matches.size()));
+        } catch (Exception ex) {
+            appendConsole(t("TODO taraması başarısız: %s", ex.getMessage()));
+        }
     }
 
     private void installShortcuts() {
@@ -1909,7 +2144,10 @@ public final class EditorFrame extends JFrame {
             if (tab == activeTab) dirty = false;
             updateTabTitle(tab);
             if (tab == activeTab) updateEditorStatus();
-            if (!quiet) appendConsole(t("Kaydedildi: %s", relative(tab.file)));
+            if (!quiet) {
+                appendConsole(t("Kaydedildi: %s", relative(tab.file)));
+                Ui.toast(this, t("Kaydedildi"));
+            }
             return true;
         } catch (IOException ex) {
             if (!quiet) JOptionPane.showMessageDialog(this, ex.getMessage(), t("Kaydetme hatası"), JOptionPane.ERROR_MESSAGE);

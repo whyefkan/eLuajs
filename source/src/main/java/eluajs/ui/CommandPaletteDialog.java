@@ -23,6 +23,7 @@ final class CommandPaletteDialog extends JDialog {
     private final DefaultListModel<Command> model = new DefaultListModel<>();
     private final JList<Command> list = new JList<>(model);
     private final List<Command> all;
+    private static final java.util.List<String> RECENT = new java.util.ArrayList<>();
 
     CommandPaletteDialog(Frame owner, List<Command> commands) {
         super(owner, t("Komut Paleti"), ModalityType.APPLICATION_MODAL);
@@ -105,16 +106,38 @@ final class CommandPaletteDialog extends JDialog {
     private void filter() {
         String q = query.getText().trim().toLowerCase(Locale.ROOT);
         model.clear();
+        List<Command> matches = new ArrayList<>();
         for (Command command : all) {
-            if (q.isEmpty() || command.title().toLowerCase(Locale.ROOT).contains(q)
-                    || command.hint().toLowerCase(Locale.ROOT).contains(q)) model.addElement(command);
+            String title = command.title().toLowerCase(Locale.ROOT);
+            String hint = command.hint().toLowerCase(Locale.ROOT);
+            if (q.isEmpty() || fuzzy(title, q) || fuzzy(hint, q)) matches.add(command);
         }
+        matches.sort((a, b) -> {
+            int ai = RECENT.indexOf(a.title());
+            int bi = RECENT.indexOf(b.title());
+            if (ai >= 0 || bi >= 0) return ai < 0 ? 1 : bi < 0 ? -1 : Integer.compare(ai, bi);
+            return a.title().compareToIgnoreCase(b.title());
+        });
+        for (Command command : matches) model.addElement(command);
         if (!model.isEmpty()) list.setSelectedIndex(0);
+    }
+
+    private static boolean fuzzy(String text, String query) {
+        int at = 0;
+        for (int i = 0; i < query.length(); i++) {
+            at = text.indexOf(query.charAt(i), at);
+            if (at < 0) return false;
+            at++;
+        }
+        return true;
     }
 
     private void choose() {
         Command command = list.getSelectedValue();
         if (command == null) return;
+        RECENT.remove(command.title());
+        RECENT.add(0, command.title());
+        while (RECENT.size() > 8) RECENT.remove(RECENT.size() - 1);
         dispose();
         if (command.action() != null) command.action().run();
     }

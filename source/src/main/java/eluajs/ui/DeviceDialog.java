@@ -23,6 +23,8 @@ final class DeviceDialog extends JDialog {
     private final JButton install = Ui.button(t("APK Yükle"), false);
     private final JButton start = Ui.button(t("Logcat Başlat"), true);
     private final JButton stop = Ui.button(t("Durdur"), false);
+    private final JComboBox<String> levelFilter = new JComboBox<>(new String[]{"All", "V", "D", "I", "W", "E"});
+    private final JTextField logFilter = Ui.field();
     private Path apk;
     private Process logcat;
 
@@ -78,10 +80,25 @@ final class DeviceDialog extends JDialog {
         JButton explain = Ui.button(t("Açıkla"), false);
         explain.addActionListener(e -> explainSelected());
         actions.add(explain);
+        JButton saveLog = Ui.button(t("Kaydet"), false);
+        saveLog.addActionListener(e -> saveLog());
+        actions.add(saveLog);
         actions.add(start);
         actions.add(stop);
         top.add(actions, BorderLayout.EAST);
-        root.add(top, BorderLayout.NORTH);
+        JPanel filters = new JPanel(new BorderLayout(8, 0));
+        filters.setOpaque(false);
+        filters.setBorder(new EmptyBorder(8, 0, 0, 0));
+        Ui.styleCombo(levelFilter);
+        levelFilter.setPreferredSize(new Dimension(92, 30));
+        logFilter.putClientProperty("JTextField.placeholderText", t("Loglarda ara"));
+        filters.add(levelFilter, BorderLayout.WEST);
+        filters.add(logFilter, BorderLayout.CENTER);
+        JPanel north = new JPanel(new BorderLayout());
+        north.setOpaque(false);
+        north.add(top, BorderLayout.NORTH);
+        north.add(filters, BorderLayout.SOUTH);
+        root.add(north, BorderLayout.NORTH);
 
         log.setEditable(false);
         log.setFont(Theme.mono(11));
@@ -147,6 +164,25 @@ final class DeviceDialog extends JDialog {
         worker.execute();
     }
 
+    private boolean matchesLog(String line) {
+        if (line == null) return false;
+        String needle = logFilter.getText() == null ? "" : logFilter.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        if (!needle.isBlank() && !line.toLowerCase(java.util.Locale.ROOT).contains(needle)) return false;
+        int level = levelFilter.getSelectedIndex();
+        if (level <= 0) return true;
+        String letter = new String[]{"", "V", "D", "I", "W", "E"}[level];
+        return line.matches(".*\\s" + letter + "/.*");
+    }
+
+    private void saveLog() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle(t("Log dosyasını kaydet"));
+        chooser.setSelectedFile(new java.io.File("logcat.txt"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        try { Files.writeString(chooser.getSelectedFile().toPath(), log.getText()); status.setText(t("Log kaydedildi.")); }
+        catch (Exception ex) { status.setText(t("Kaydedilemedi: %s", ex.getMessage())); }
+    }
+
     private void explainSelected() {
         String selected = log.getSelectedText();
         if (selected == null || selected.isBlank()) {
@@ -190,7 +226,7 @@ final class DeviceDialog extends JDialog {
                     String line;
                     while ((line = in.readLine()) != null) {
                         String value = line + "\n";
-                        SwingUtilities.invokeLater(() -> {
+                        if (matchesLog(value)) SwingUtilities.invokeLater(() -> {
                             log.append(value);
                             if (log.getDocument().getLength() > 1_000_000) {
                                 log.replaceRange("", 0, 200_000);

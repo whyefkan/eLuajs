@@ -10,6 +10,8 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.nio.file.Path;
+import java.util.EnumMap;
+import java.util.Map;
 
 public final class NewProjectDialog extends JDialog {
     private final JTextField appName = Ui.field();
@@ -19,6 +21,7 @@ public final class NewProjectDialog extends JDialog {
     private final JTextField logo = Ui.field();
     private final JComboBox<ProjectTemplate.Template> template = new JComboBox<>(ProjectTemplate.Template.values());
     private final JLabel templateDescription = Ui.label("", 12, Font.PLAIN, Theme.MUTED);
+    private final Map<ProjectTemplate.Template, JToggleButton> templateButtons = new EnumMap<>(ProjectTemplate.Template.class);
     private final Path projectsRoot;
     private ProjectMeta created;
 
@@ -74,8 +77,39 @@ public final class NewProjectDialog extends JDialog {
         templateBox.setOpaque(false);
         templateBox.add(template, BorderLayout.NORTH);
         templateBox.add(templateDescription, BorderLayout.SOUTH);
-        template.addActionListener(e -> templateDescription.setText(templateDescription((ProjectTemplate.Template) template.getSelectedItem())));
+        template.addActionListener(e -> {
+            templateDescription.setText(templateDescription((ProjectTemplate.Template) template.getSelectedItem()));
+            refreshTemplateCards();
+        });
         templateDescription.setText(templateDescription(ProjectTemplate.Template.EMPTY));
+        refreshTemplateCards();
+        JPanel gallery = new JPanel(new GridLayout(1, 5, 8, 0));
+        gallery.setOpaque(false);
+        gallery.setAlignmentX(Component.LEFT_ALIGNMENT);
+        gallery.setMaximumSize(new Dimension(Integer.MAX_VALUE, 54));
+        javax.swing.ButtonGroup group = new javax.swing.ButtonGroup();
+        for (ProjectTemplate.Template item : ProjectTemplate.Template.values()) {
+            JToggleButton card = new JToggleButton(templateLabel(item));
+            card.setFont(Theme.font(10, Font.BOLD));
+            card.setFocusPainted(false);
+            card.setOpaque(true);
+            card.setBackground(Theme.PANEL_2);
+            card.setForeground(Theme.TEXT_SOFT);
+            card.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(Theme.BORDER),
+                    new EmptyBorder(7, 6, 7, 6)));
+            card.setToolTipText(templateDescription(item));
+            card.addActionListener(e -> {
+                template.setSelectedItem(item);
+                templateDescription.setText(templateDescription(item));
+                refreshTemplateCards();
+            });
+            group.add(card);
+            templateButtons.put(item, card);
+            gallery.add(card);
+        }
+        root.add(gallery);
+        root.add(Box.createVerticalStrut(8));
         addRow(root, t("Şablon"), templateBox, 92);
 
         JPanel logoLine = new JPanel(new BorderLayout(10, 0));
@@ -104,6 +138,20 @@ public final class NewProjectDialog extends JDialog {
         root.add(buttons);
         add(root, BorderLayout.CENTER);
         getRootPane().setDefaultButton(create);
+    }
+
+    private void refreshTemplateCards() {
+        ProjectTemplate.Template selected = (ProjectTemplate.Template) template.getSelectedItem();
+        for (var entry : templateButtons.entrySet()) {
+            boolean active = entry.getKey() == selected;
+            JToggleButton card = entry.getValue();
+            card.setSelected(active);
+            card.setBackground(active ? Theme.ACCENT_DARK : Theme.PANEL_2);
+            card.setForeground(active ? Theme.ACCENT : Theme.TEXT_SOFT);
+            card.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(active ? Theme.ACCENT : Theme.BORDER),
+                    new EmptyBorder(7, 6, 7, 6)));
+        }
     }
 
     private void addRow(JPanel root, String name, JComponent comp) {

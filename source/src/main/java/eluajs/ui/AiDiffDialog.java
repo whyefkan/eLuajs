@@ -80,6 +80,12 @@ final class AiDiffDialog extends JDialog {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
+        JButton selectAll = Ui.button(t("Tümünü Seç"), false);
+        selectAll.addActionListener(e -> {
+            if (!model.isEmpty()) files.setSelectionInterval(0, model.size() - 1);
+        });
+        JButton selectNone = Ui.button(t("Hiçbiri"), false);
+        selectNone.addActionListener(e -> files.clearSelection());
         JButton reject = Ui.button(t("Reddet"), false);
         reject.addActionListener(e -> dispose());
         JButton apply = Ui.button(t("Seçilenleri Uygula"), true);
@@ -92,6 +98,8 @@ final class AiDiffDialog extends JDialog {
             approved = selected;
             dispose();
         });
+        actions.add(selectAll);
+        actions.add(selectNone);
         actions.add(reject);
         actions.add(apply);
         content.add(actions, BorderLayout.SOUTH);

@@ -46,12 +46,14 @@ public final class Theme {
     private static boolean light;
     private static boolean pureBlack;
     private static String mode = "dark";
+    private static String accent = "mint";
 
     private Theme() {}
 
     public static boolean isLight() { return light; }
     public static boolean isPureBlack() { return pureBlack; }
     public static String mode() { return mode; }
+    public static String accent() { return accent; }
 
     public static void load() {
         Properties p = new Properties();
@@ -60,7 +62,30 @@ public final class Theme {
             try (InputStream in = Files.newInputStream(file)) { p.load(in); }
             catch (IOException ignored) { }
         }
+        accent = p.getProperty("accent", "mint");
         setMode(p.getProperty("theme", "dark"));
+    }
+
+    public static void setAccent(String value) {
+        accent = normalizeAccent(value);
+        applyPalette();
+        Properties p = new Properties();
+        Path file = settingsFile();
+        if (Files.isRegularFile(file)) {
+            try (InputStream in = Files.newInputStream(file)) { p.load(in); }
+            catch (IOException ignored) { }
+        }
+        p.setProperty("theme", mode);
+        p.setProperty("accent", accent);
+        try {
+            Files.createDirectories(file.getParent());
+            try (OutputStream out = Files.newOutputStream(file)) { p.store(out, "eLuajs settings"); }
+        } catch (IOException ignored) { }
+    }
+
+    private static String normalizeAccent(String value) {
+        String next = value == null ? "mint" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (next) { case "blue", "purple", "orange", "pink" -> next; default -> "mint"; };
     }
 
     public static void setLight(boolean value) {
@@ -80,6 +105,7 @@ public final class Theme {
             catch (IOException ignored) { }
         }
         p.setProperty("theme", mode);
+        p.setProperty("accent", accent);
         try {
             Files.createDirectories(file.getParent());
             try (OutputStream out = Files.newOutputStream(file)) { p.store(out, "eLuajs settings"); }
@@ -176,6 +202,31 @@ public final class Theme {
             WARNING = new Color(180, 83, 9);
             SELECTION = new Color(205, 238, 227);
         }
+        applyAccent();
+    }
+
+    private static void applyAccent() {
+        Color base = switch (normalizeAccent(accent)) {
+            case "blue" -> new Color(86, 156, 214);
+            case "purple" -> new Color(181, 140, 255);
+            case "orange" -> new Color(255, 173, 92);
+            case "pink" -> new Color(255, 122, 182);
+            default -> new Color(55, 214, 164);
+        };
+        ACCENT = light ? base.darker() : base;
+        ACCENT_HOVER = light ? base : base.brighter();
+        ACCENT_DARK = blend(light ? new Color(255, 255, 255) : new Color(0, 0, 0), ACCENT, light ? .82f : .36f);
+        STATUS_BG = light ? ACCENT : ACCENT.darker();
+        STATUS_TEXT = light ? new Color(255, 255, 255) : new Color(4, 31, 24);
+        SELECTION = blend(light ? new Color(255, 255, 255) : PANEL, ACCENT, light ? .82f : .30f);
+    }
+
+    private static Color blend(Color a, Color b, float ratio) {
+        float r = Math.max(0f, Math.min(1f, ratio));
+        return new Color(
+                Math.round(a.getRed() * (1 - r) + b.getRed() * r),
+                Math.round(a.getGreen() * (1 - r) + b.getGreen() * r),
+                Math.round(a.getBlue() * (1 - r) + b.getBlue() * r));
     }
 
     public static void install() {

@@ -48,6 +48,10 @@ public final class SyntaxEditorPane extends JTextPane {
     private EditorFindDialog findDialog;
     private final UndoManager undoManager = new UndoManager();
     private final Timer highlightTimer;
+    private Object currentLineTag;
+    private final javax.swing.text.Highlighter.HighlightPainter currentLinePainter =
+            new javax.swing.text.DefaultHighlighter.DefaultHighlightPainter(
+                    new Color(55, 214, 164, 18));
     private static final int HIGHLIGHT_DEBOUNCE_MS = 180;
     private static final int MAX_HIGHLIGHT_CHARS = 850_000;
 
@@ -151,7 +155,10 @@ public final class SyntaxEditorPane extends JTextPane {
             }
             @Override public void changedUpdate(DocumentEvent e) { }
         });
-        addCaretListener(e -> highlightMatchingBracket());
+        addCaretListener(e -> {
+            highlightMatchingBracket();
+            highlightCurrentLine();
+        });
         getDocument().addUndoableEditListener(e -> {
             UndoableEdit edit = e.getEdit();
             if (edit instanceof AbstractDocument.DefaultDocumentEvent event
@@ -502,6 +509,22 @@ public final class SyntaxEditorPane extends JTextPane {
                         new DefaultHighlighter.DefaultHighlightPainter(new Color(r, g, b, Math.max(35, a)))));
             } catch (Exception ignored) { }
         }
+    }
+
+    private void highlightCurrentLine() {
+        try {
+            if (currentLineTag != null) {
+                getHighlighter().removeHighlight(currentLineTag);
+                currentLineTag = null;
+            }
+            int pos = getCaretPosition();
+            javax.swing.text.Element root = getDocument().getDefaultRootElement();
+            int line = root.getElementIndex(pos);
+            javax.swing.text.Element el = root.getElement(line);
+            if (el != null && el.getEndOffset() > el.getStartOffset()) {
+                currentLineTag = getHighlighter().addHighlight(el.getStartOffset(), el.getEndOffset(), currentLinePainter);
+            }
+        } catch (Exception ignored) { }
     }
 
     private void highlightMatchingBracket() {

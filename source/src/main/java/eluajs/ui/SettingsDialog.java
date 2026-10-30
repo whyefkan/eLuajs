@@ -49,6 +49,8 @@ public final class SettingsDialog extends JDialog {
     private final JLabel status = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
     private final JLabel savedProviders = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
     private final JComboBox<String> themeCombo = new JComboBox<>(new String[]{t("Dark"), t("Light"), t("Pure Black")});
+    private final JComboBox<String> accentCombo = new JComboBox<>(new String[]{
+            t("Mint"), t("Blue"), t("Purple"), t("Orange"), t("Pink")});
     private final JCheckBox autoUpdate = new JCheckBox(t("Check for updates automatically on startup"));
     private final JLabel updateStatus = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
 
@@ -220,7 +222,7 @@ public final class SettingsDialog extends JDialog {
         JPanel appearance = Ui.softCard(new BorderLayout(0, 7));
         appearance.setAlignmentX(Component.LEFT_ALIGNMENT);
         appearance.setBorder(new EmptyBorder(14, 18, 14, 18));
-        appearance.setMaximumSize(new Dimension(Integer.MAX_VALUE, 132));
+        appearance.setMaximumSize(new Dimension(Integer.MAX_VALUE, 190));
         appearance.add(Ui.sectionLabel(t("Appearance")), BorderLayout.NORTH);
         JPanel themeBody = new JPanel();
         themeBody.setOpaque(false);
@@ -234,6 +236,14 @@ public final class SettingsDialog extends JDialog {
         themeNote.setAlignmentX(Component.LEFT_ALIGNMENT);
         themeBody.add(Box.createVerticalStrut(5));
         themeBody.add(themeNote);
+        themeBody.add(Box.createVerticalStrut(8));
+        themeBody.add(Ui.label(t("Vurgu rengi"), 10, Font.BOLD, Theme.MUTED));
+        styleCombo(accentCombo);
+        accentCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 34));
+        accentCombo.setSelectedIndex(switch (Theme.accent()) {
+            case "blue" -> 1; case "purple" -> 2; case "orange" -> 3; case "pink" -> 4; default -> 0;
+        });
+        themeBody.add(accentCombo);
         appearance.add(themeBody, BorderLayout.CENTER);
         page.add(appearance);
         page.add(Box.createVerticalStrut(12));
@@ -246,13 +256,37 @@ public final class SettingsDialog extends JDialog {
         JPanel crashBody = new JPanel(new BorderLayout(8, 0));
         crashBody.setOpaque(false);
         crashBody.add(Ui.label(t("Unexpected errors are written to ~/.eluajs/crash.log."), 11, Font.PLAIN, Theme.TEXT_SOFT), BorderLayout.CENTER);
+        JPanel crashActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        crashActions.setOpaque(false);
+        JButton copyCrash = Ui.button(t("Copy diagnostics"), false);
+        copyCrash.addActionListener(e -> copyDiagnostics());
         JButton openCrash = Ui.button(t("Open crash log"), false);
         openCrash.addActionListener(e -> openCrashLog());
-        crashBody.add(openCrash, BorderLayout.EAST);
+        crashActions.add(copyCrash);
+        crashActions.add(openCrash);
+        crashBody.add(crashActions, BorderLayout.EAST);
         crash.add(crashBody, BorderLayout.CENTER);
         page.add(crash);
         page.add(Box.createVerticalGlue());
         return page;
+    }
+
+    private void copyDiagnostics() {
+        try {
+            String log = CrashReporter.tail(60_000);
+            if (log == null || log.isBlank()) log = t("No crash log yet.");
+            String text = "eLuajs " + eluajs.util.AppInfo.version() + "\n"
+                    + "Java: " + System.getProperty("java.version") + "\n"
+                    + "OS: " + System.getProperty("os.name") + " " + System.getProperty("os.version") + "\n"
+                    + "\n--- crash.log ---\n" + log;
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(text), null);
+            updateStatus.setText(t("Diagnostics copied."));
+            updateStatus.setForeground(Theme.ACCENT);
+        } catch (Exception ex) {
+            updateStatus.setText(t("Could not copy diagnostics: %s", ex.getMessage()));
+            updateStatus.setForeground(Theme.DANGER);
+        }
     }
 
     private void openCrashLog() {
@@ -482,6 +516,17 @@ public final class SettingsDialog extends JDialog {
         form.add(Box.createVerticalStrut(8));
 
         updateStatus.setAlignmentX(Component.LEFT_ALIGNMENT);
+        if (UpdateManager.lastCheckedAt() > 0) {
+            String time = new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm")
+                    .format(new java.util.Date(UpdateManager.lastCheckedAt()));
+            if (UpdateManager.lastCheckError() != null && !UpdateManager.lastCheckError().isBlank()) {
+                updateStatus.setText(t("Last update check failed: %s", UpdateManager.lastCheckError()));
+                updateStatus.setForeground(Theme.DANGER);
+            } else {
+                updateStatus.setText(t("Last update check: %s", time));
+                updateStatus.setForeground(Theme.MUTED);
+            }
+        }
         form.add(updateStatus);
         card.add(form, BorderLayout.CENTER);
         page.add(card);
@@ -714,6 +759,13 @@ public final class SettingsDialog extends JDialog {
         updateConfig.setAutoCheck(autoUpdate.isSelected());
         updateConfig.save();
         String theme = switch (themeCombo.getSelectedIndex()) { case 1 -> "light"; case 2 -> "black"; default -> "dark"; };
+        String accent = switch (accentCombo.getSelectedIndex()) {
+            case 1 -> "blue"; case 2 -> "purple"; case 3 -> "orange"; case 4 -> "pink"; default -> "mint";
+        };
+        if (!accent.equals(Theme.accent())) {
+            Theme.setAccent(accent);
+            languageChanged = true;
+        }
         if (!theme.equals(Theme.mode())) {
             Theme.setMode(theme);
             languageChanged = true;
