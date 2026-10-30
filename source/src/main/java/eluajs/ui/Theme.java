@@ -44,10 +44,14 @@ public final class Theme {
     public static Color SELECTION = new Color(34, 75, 65);
 
     private static boolean light;
+    private static boolean pureBlack;
+    private static String mode = "dark";
 
     private Theme() {}
 
     public static boolean isLight() { return light; }
+    public static boolean isPureBlack() { return pureBlack; }
+    public static String mode() { return mode; }
 
     public static void load() {
         Properties p = new Properties();
@@ -56,12 +60,18 @@ public final class Theme {
             try (InputStream in = Files.newInputStream(file)) { p.load(in); }
             catch (IOException ignored) { }
         }
-        light = "light".equalsIgnoreCase(p.getProperty("theme", "dark").trim());
-        applyPalette();
+        setMode(p.getProperty("theme", "dark"));
     }
 
     public static void setLight(boolean value) {
-        light = value;
+        setMode(value ? "light" : "dark");
+    }
+
+    public static void setMode(String value) {
+        String next = value == null ? "dark" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        mode = next.equals("light") || next.equals("black") ? next : "dark";
+        light = mode.equals("light");
+        pureBlack = mode.equals("black");
         applyPalette();
         Properties p = new Properties();
         Path file = settingsFile();
@@ -69,7 +79,7 @@ public final class Theme {
             try (InputStream in = Files.newInputStream(file)) { p.load(in); }
             catch (IOException ignored) { }
         }
-        p.setProperty("theme", value ? "light" : "dark");
+        p.setProperty("theme", mode);
         try {
             Files.createDirectories(file.getParent());
             try (OutputStream out = Files.newOutputStream(file)) { p.store(out, "eLuajs settings"); }
@@ -81,7 +91,35 @@ public final class Theme {
     }
 
     private static void applyPalette() {
-        if (!light) {
+        if (pureBlack) {
+            BG = new Color(0, 0, 0);
+            SIDEBAR = new Color(0, 0, 0);
+            TITLE_BAR = new Color(0, 0, 0);
+            ACTIVITY_BAR = new Color(0, 0, 0);
+            PANEL = new Color(10, 10, 10);
+            PANEL_2 = new Color(18, 18, 18);
+            PANEL_3 = new Color(26, 26, 26);
+            PANEL_HOVER = new Color(34, 34, 34);
+            EDITOR = new Color(0, 0, 0);
+            CONSOLE = new Color(0, 0, 0);
+            TAB_BAR = new Color(0, 0, 0);
+            TAB_ACTIVE = new Color(10, 10, 10);
+            TAB_INACTIVE = new Color(5, 5, 5);
+            BORDER = new Color(42, 42, 42);
+            BORDER_SOFT = new Color(26, 26, 26);
+            TEXT = new Color(255, 255, 255);
+            TEXT_SOFT = new Color(208, 208, 208);
+            MUTED = new Color(138, 138, 138);
+            ACCENT = new Color(55, 214, 164);
+            ACCENT_HOVER = new Color(79, 229, 183);
+            ACCENT_DARK = new Color(11, 59, 46);
+            STATUS_BG = new Color(15, 157, 118);
+            STATUS_TEXT = new Color(255, 255, 255);
+            BLUE = new Color(86, 156, 214);
+            DANGER = new Color(248, 113, 113);
+            WARNING = new Color(251, 191, 36);
+            SELECTION = new Color(31, 74, 61);
+        } else if (!light) {
             BG = new Color(9, 13, 19);
             SIDEBAR = new Color(7, 11, 16);
             TITLE_BAR = new Color(7, 11, 16);

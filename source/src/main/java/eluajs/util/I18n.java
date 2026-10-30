@@ -251,6 +251,8 @@ public final class I18n {
         en("Logcat Başlat", "Start Logcat");
         en("Logcat başlatılamadı: %s", "Could not start Logcat: %s");
         en("Request cancelled.", "Request cancelled.");
+        en("Renk Seçici", "Color Picker");
+        en("Daha Fazla", "More");
         en("Tekrar Dene", "Retry");
         en("Temiz derleme", "Clean build");
         en("Çevrimdışı", "Offline");
@@ -354,6 +356,7 @@ public final class I18n {
         en("Kaydedilemedi: %s", "Could not save: %s");
         en("Proje ayarları kaydedildi.", "Project settings saved.");
         en("Dark", "Dark");
+        en("Pure Black", "Pure Black");
         en("Light", "Light");
         en("Theme changes are applied when you restart eLuajs.", "Theme changes are applied when you restart eLuajs.");
         en("Reliability", "Reliability");
@@ -882,7 +885,8 @@ public final class I18n {
         tr("Update", "Güncelleme");
         tr("Settings", "Ayarlar");
         tr("eLuajs Settings", "eLuajs Ayarları");
-        tr("Hızlı Dosya Aç", "Hızlı Dosya Aç");        tr("Cihazlar", "Cihazlar");        tr("Request cancelled.", "İstek iptal edildi.");
+        tr("Hızlı Dosya Aç", "Hızlı Dosya Aç");        tr("Cihazlar", "Cihazlar");        tr("Daha Fazla", "Daha Fazla");
+        tr("Cihazlar", "Cihazlar");        tr("Request cancelled.", "İstek iptal edildi.");
         tr("Cihazlar", "Cihazlar");
         tr("Cihazlar ve Logcat", "Cihazlar ve Logcat");
         tr("Bağlı cihaz", "Bağlı cihaz");
@@ -935,6 +939,7 @@ public final class I18n {
         tr("No crash log yet.", "Henüz çökme günlüğü yok.");
         tr("Crash log", "Çökme günlüğü");
         tr("Dark", "Koyu");
+        tr("Light", "Açık");        tr("Pure Black", "Tam Siyah");
         tr("Light", "Açık");
         tr("Theme changes are applied when you restart eLuajs.", "Tema değişiklikleri eLuajs yeniden başlatılınca uygulanır.");
         tr("Split preview", "Bölünmüş görünüm");
@@ -1090,6 +1095,17 @@ public final class I18n {
     }
 
     private static void addGeneratedTranslations() {
+        deT("Color Picker", "Farbauswahl");
+        frT("Color Picker", "Sélecteur de couleur");
+        esT("Color Picker", "Selector de color");
+        ruT("Color Picker", "Выбор цвета");
+        deT("Daha Fazla", "Mehr");
+        frT("Daha Fazla", "Plus");
+        esT("Daha Fazla", "Más");
+        ruT("Daha Fazla", "Ещё");        deT("Pure Black", "Reines Schwarz");
+        frT("Pure Black", "Noir pur");
+        esT("Pure Black", "Negro puro");
+        ruT("Pure Black", "Чистый чёрный");
         deT("Apply Selected", "Ausgewählte anwenden");
         deT("AI changes are shown before applying. Use Ctrl/Shift to select files.", "KI-Änderungen werden vor der Anwendung angezeigt. Mit Strg/Umschalt Dateien auswählen.");
         frT("Apply Selected", "Appliquer la sélection");
@@ -3909,5 +3925,151 @@ public final class I18n {
     }
 
 
+
+    static {
+        // Project tools and language coverage
+        en("Proje Araçları", "Project Tools");
+        en("SDK, sürüm ve Gradle ayarları", "SDK, version and Gradle settings");
+        en("Proje Checkpoint'leri", "Project Checkpoints");
+        en("Projeyi anlık görüntüle ve geri yükle", "Snapshot and restore the project");
+        en("Projeyi anlık görüntüle, geri yükle veya sil.", "Snapshot, restore or delete the project.");
+        en("Erişilebilirlik Denetçisi", "Accessibility Inspector");
+        en("XML layout erişilebilirlik sorunları", "XML layout accessibility issues");
+        en("XML layout erişilebilirlik sorunları.", "XML layout accessibility issues.");
+        en("Proje Notları", "Project Notes");
+        en("Proje bazlı Markdown notları", "Project-based Markdown notes");
+        en("Bu proje için Markdown notları.", "Markdown notes for this project.");
+        en("Referans Haritası", "Reference Map");
+        en("Sınıf, layout ve string kullanımlarını bul", "Find class, layout and string usages");
+        en("Sınıf, layout ve string kullanımlarını bulun.", "Find class, layout and string usages.");
+        en("Çeviri Durumu", "Translation Status");
+        en("Locale dosyalarındaki eksik çeviriler", "Missing translations in locale files");
+        en("Locale dosyalarındaki eksik çeviriler.", "Missing translations in locale files.");
+        en("Sürüm Notları", "Release Notes");
+        en("Sürüm ve Sürüm Notları", "Version and Release Notes");
+        en("VersionCode artır ve Git geçmişinden not üret", "Bump VersionCode and generate notes from Git history");
+        en("VersionCode artır ve Git geçmişinden not üret.", "Bump VersionCode and generate notes from Git history.");
+        en("AI Kod İncelemesi", "AI Code Review");
+        en("Değişiklikleri AI ile incele, dosya değiştirmeden", "Review changes with AI without modifying files");
+        en("Değişiklikleri yapay zeka ile inceleyin; dosyalar değiştirilmez.", "Review changes with AI; no files are modified.");
+        en("İncelemeyi Başlat", "Start Review");
+        en("Kenar çubuklarını gizleyerek sadece koda odaklan", "Hide sidebars and focus only on code");
+        en("Kenar çubuklarını gizleyip yalnızca koda odaklanın.", "Hide sidebars and focus only on code.");
+        en("Odak Modunu Aç", "Enter Focus Mode");
+        en("Görsel, ses ve font ekle", "Add images, audio and fonts");
+        en("Görsel, ses ve fontları projeye ekleyin.", "Add images, audio and fonts to the project.");
+        en("Varlıkları Yönet", "Manage Assets");
+        en("Gradle Kütüphaneleri", "Gradle Libraries");
+        en("Bağımlılıkları yönet", "Manage dependencies");
+        en("Proje bağımlılıklarını ekleyin ve kaldırın.", "Add and remove project dependencies.");
+        en("Kütüphaneleri Düzenle", "Manage Libraries");
+        en("Manifest izinlerini düzenle", "Edit manifest permissions");
+        en("Manifest dosyasındaki izinleri düzenleyin.", "Edit permissions in the manifest file.");
+        en("İzinleri Düzenle", "Manage Permissions");
+        en("ADB cihazları, APK yükleme ve logcat", "ADB devices, APK install and logcat");
+        en("Bağlı cihazları, APK yüklemeyi ve logcat çıktısını yönetin.", "Manage connected devices, APK installs and logcat output.");
+        en("Cihazları Yönet", "Manage Devices");
+        en("Çoklu Cihaza Yükle", "Install on Multiple Devices");
+        en("Aynı APK'yı seçili cihazlara kur", "Install the same APK on selected devices");
+        en("Aynı APK'yı birden fazla bağlı cihaza kurun.", "Install the same APK on multiple connected devices.");
+        en("İki çıktı arasındaki dosya ve boyut farkları", "File and size differences between two outputs");
+        en("İki çıktı arasındaki dosya ve boyut farkları.", "File and size differences between two outputs.");
+        en("İlk APK/AAB", "First APK/AAB");
+        en("İkinci APK/AAB", "Second APK/AAB");
+        en("Karşılaştır", "Compare");
+        en("APK/AAB seç", "Select APK/AAB");
+        en("İki APK/AAB dosyası seçin.", "Select two APK/AAB files.");
+        en("Diff hatası: %s", "Diff error: %s");
+        en("Yeni sürüm: %s (%d)", "New version: %s (%d)");
+        en("Değişiklikler:", "Changes:");
+        en("Git geçmişi yok.", "No Git history.");
+        en("Sürüm bilgisi okunamadı: %s", "Could not read version info: %s");
+        en("Sürüm kodu artırıldı.", "Version code increased.");
+        en("Checkpoint Oluştur", "Create Checkpoint");
+        en("Checkpoint adı", "Checkpoint name");
+        en("Checkpoint geri yüklendi.", "Checkpoint restored.");
+        en("Checkpoint oluşturulamadı", "Could not create checkpoint");
+        en("Geri Yükle", "Restore");
+        en("Geri yüklenemedi", "Could not restore");
+        en("Proje bu checkpoint'e geri yüklensin mi?", "Restore the project to this checkpoint?");
+        en("Notlar kaydedildi.", "Notes saved.");
+        en("Yeniden Tara", "Scan Again");
+        en("Taranıyor...", "Scanning...");
+        en("Sorun bulunamadı.", "No issues found.");
+        en("Locale bulunamadı.", "No locales found.");
+        en("%d locale", "%d locales");
+        en("Aranacak sınıf / layout / string", "Class / layout / string to search");
+        en("Maven/Google koordinatını ekle; standart Gradle kullanılır.", "Add a Maven/Google coordinate; standard Gradle is used.");
+        en("Sık kullanılan izinleri yönet; AndroidManifest.xml düzenlenir.", "Manage common permissions; AndroidManifest.xml is updated.");
+        en("Seçilenlere Yükle", "Install on Selected");
+        en("APK Seç", "Select APK");
+        en("APK seçin.", "Select an APK.");
+        en("Cihaz seçin.", "Select a device.");
+        en("Açıkla", "Explain");
+        en("Log Açıklaması", "Log Explanation");
+        en("Bir nesne null iken kullanılmış. İlgili değişkeni ve yaşam döngüsünü kontrol edin.", "An object was used while null. Check the variable and its lifecycle.");
+        en("Bir sınıf bulunamadı. Gradle bağımlılığını ve paket adını kontrol edin.", "A class was not found. Check the Gradle dependency and package name.");
+        en("İzin hatası olabilir. Manifest iznini ve çalışma zamanı iznini kontrol edin.", "This may be a permission error. Check the manifest and runtime permission.");
+        en("Bellek yetersiz. Büyük görselleri küçültün ve kaynakları serbest bırakın.", "Out of memory. Downscale large images and release resources.");
+        en("Uygulama çökmüş. Bu satırın üstündeki ilk uygulama stack trace satırına bakın.", "The app crashed. Look at the first application stack trace line above this one.");
+        en("Seçili log satırı için yerel bir açıklama bulunamadı. AI asistanına bu satırı gönderebilirsiniz.", "No local explanation was found for the selected log line. You can send it to the AI assistant.");
+        en("ADB hatası", "ADB error");
+        en("Seçilenler", "Selected");
+
+    }
+
+    static {
+        // Remaining project and build messages
+        en("Yan yana önizleme (Ctrl+\\)", "Side-by-side preview (Ctrl+\\)");
+        en("Yana Aç", "Open Beside");
+        en("Dosya adı yazın", "Enter a file name");
+        en("Debug APK başarıyla oluşturuldu:\n%s", "Debug APK created successfully:\n%s");
+        en("Derleme günlüğü burada görünecek.\nHata konumu olan bir satıra çift tıklayarak editörde açabilirsiniz.\n", "The build log will appear here.\nDouble-click a line with an error location to open it in the editor.\n");
+        en("JDK içindeki jlink aracı kullanılamadı. eLuajs paketini yeniden çıkarın veya güncel paketi kullanın.\n\n%s", "The jlink tool in the JDK could not be used. Re-extract the eLuajs package or use the latest package.\n\n%s");
+        en("\n\nKaynak konumu bulundu. 'Hata Satırına Git' düğmesini kullanabilirsiniz.", "\n\nSource location found. Use the 'Go to Error Line' button.");
+        en("eLuajs JDK araçları eksik. java, javac ve jlink birlikte bulunmalıdır.\nBu paket bozuk veya eksik çıkarılmış olabilir.", "eLuajs JDK tools are missing. java, javac and jlink must be available together.\nThis package may be broken or incompletely extracted.");
+        en("İmzalı release AAB başarıyla oluşturuldu:\n%s\n\nBu dosya Google Play Console'a yüklenmek için hazırlanmıştır.", "Signed release AAB created successfully:\n%s\n\nThis file is ready to upload to Google Play Console.");
+        en("%s kalıcı olarak silinsin mi?\n\nJava dosyası ve Manifest kaydı kaldırılacak.", "Permanently delete %s?\n\nThe Java file and manifest entry will be removed.");
+        en("%s oluşturuldu.\nManifest kaydı otomatik eklendi.\n\nSayfalar arası geçiş örneği alt konsola yazıldı.", "%s was created.\nIts manifest entry was added automatically.\n\nA sample navigation snippet was written to the output panel.");
+        en("'%s' metni '%s' ile değiştirilsin mi?\n\nYedekler .eluajs/recovery altına alınır.", "Replace '%s' with '%s'?\n\nBackups are stored under .eluajs/recovery.");
+        en("'%s' eLuajs listesinden kaldırılsın mı?\n\nProje dosyaları silinmez:\n%s", "Remove '%s' from the eLuajs list?\n\nProject files will not be deleted:\n%s");
+        en("'%s' projesi kalıcı olarak silinsin mi?\n\n%s", "Permanently delete project '%s'?\n\n%s");
+        en("eLuajs %s\nHafif Android Java IDE\n\nGerçek Android Gradle projeleri oluşturur, doğrular,\ndebug APK ve imzalı Play Store AAB üretir.\n\nEfkwn Mobile", "eLuajs %s\nLightweight Android Java IDE\n\nCreates and validates real Android Gradle projects,\nand produces debug APKs and signed Play Store AABs.\n\nEfkwn Mobile");
+        en("Upload keystore oluşturuldu:\n%s\n\nBu dosyanın güvenli bir yedeğini alın.", "Upload keystore created:\n%s\n\nKeep a secure backup of this file.");
+    }
+
+    static {
+        // Settings language labels
+        tr("German", "Almanca");
+        tr("French", "Fransızca");
+        tr("Spanish", "İspanyolca");
+        tr("Russian", "Rusça");
+        tr("Modelleri Yenile", "Modelleri Yenile");
+        tr("Modeller okunuyor...", "Modeller okunuyor...");
+        tr("%d model bulundu.", "%d model bulundu.");
+        tr("Modeller okunamadı: %s", "Modeller okunamadı: %s");
+    }
+
+    static {
+        en("Boyut farkı: ", "Size difference: ");
+    }
+
+    static {
+        tr("BOM / platform dependency", "BOM / platform bağımlılığı");
+    }
+
+    static {
+        en("Odak Modundan Çık", "Exit Focus Mode");
+        en("Odak modu açık.", "Focus mode is on.");
+        en("Odak modu kapalı.", "Focus mode is off.");
+    }
+
+    static {
+        en("Yükleniyor...", "Loading...");
+    }
+
+    static {
+        en("Karşılaştırılıyor...", "Comparing...");
+    }
 
 }

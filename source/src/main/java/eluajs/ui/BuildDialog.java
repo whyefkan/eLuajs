@@ -85,9 +85,7 @@ public final class BuildDialog extends JDialog {
         JPanel bar = new JPanel(new BorderLayout(12, 0));
         bar.setBackground(Theme.TITLE_BAR);
         bar.setPreferredSize(new Dimension(1, 54));
-        bar.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
-                new EmptyBorder(0, 16, 0, 8)));
+        bar.setBorder(new EmptyBorder(0, 16, 0, 8));
         JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
         brand.setOpaque(false);
         brand.add(new JLabel(new ImageIcon(Ui.appIcon().getScaledInstance(24, 24, Image.SCALE_SMOOTH))));
@@ -124,23 +122,10 @@ public final class BuildDialog extends JDialog {
         JLabel subtitle = Ui.label(t("Debug APK test içindir. Play Store AAB ise upload keystore ile imzalı release çıktısı üretir."), 12, Font.PLAIN, Theme.MUTED);
         subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(subtitle);
-        JPanel buildOptions = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
-        buildOptions.setOpaque(false);
-        buildOptions.setAlignmentX(Component.LEFT_ALIGNMENT);
-        for (JCheckBox box : new JCheckBox[]{cleanBuild, offlineBuild}) {
-            box.setOpaque(false);
-            box.setForeground(Theme.MUTED);
-            box.setFont(Theme.font(10, Font.PLAIN));
-            box.setFocusPainted(false);
-            buildOptions.add(box);
-        }
-        top.add(buildOptions);
-        top.add(Box.createVerticalStrut(10));
-
-        JPanel statusCard = Ui.card(new BorderLayout(0, 8));
+        JPanel statusCard = Ui.flatCard(new BorderLayout(0, 8));
         statusCard.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusCard.setBorder(new EmptyBorder(12, 15, 12, 15));
-        statusCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 128));
+        statusCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 158));
         statusCard.add(Ui.sectionLabel(t("TOOLCHAIN")), BorderLayout.NORTH);
         JPanel statusGrid = new JPanel(new GridLayout(2, 3, 10, 8));
         statusGrid.setOpaque(false);
@@ -149,7 +134,19 @@ public final class BuildDialog extends JDialog {
         statusGrid.add(statusChip("SDK Manager", sdkManagerStatus));
         statusGrid.add(statusChip("Platform " + ToolchainManager.ANDROID_PLATFORM, platformStatus));
         statusGrid.add(statusChip("Build Tools " + ToolchainManager.BUILD_TOOLS, buildToolsStatus));
-        statusGrid.add(new JPanel());
+        JPanel optionsCell = new JPanel(new GridBagLayout());
+        optionsCell.setOpaque(false);
+        JPanel buildOptions = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+        buildOptions.setOpaque(false);
+        for (JCheckBox box : new JCheckBox[]{cleanBuild, offlineBuild}) {
+            box.setOpaque(false);
+            box.setForeground(Theme.MUTED);
+            box.setFont(Theme.font(9, Font.PLAIN));
+            box.setFocusPainted(false);
+            buildOptions.add(box);
+        }
+        optionsCell.add(buildOptions);
+        statusGrid.add(optionsCell);
         statusCard.add(statusGrid, BorderLayout.CENTER);
         top.add(statusCard);
 
@@ -180,7 +177,7 @@ public final class BuildDialog extends JDialog {
             }
         });
 
-        JPanel logCard = Ui.card(new BorderLayout(0, 8));
+        JPanel logCard = Ui.flatCard(new BorderLayout(0, 8));
         logCard.setBorder(new EmptyBorder(12, 15, 12, 15));
         JPanel logHead = new JPanel(new BorderLayout(8, 0));
         logHead.setOpaque(false);
@@ -191,31 +188,15 @@ public final class BuildDialog extends JDialog {
         clear.addActionListener(e -> log.setText(""));
         JPanel logTools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         logTools.setOpaque(false);
-        artifacts.setFont(Theme.font(10, Font.BOLD));
-        artifacts.setBorder(new EmptyBorder(4, 8, 4, 8));
-        artifacts.addActionListener(e -> new ArtifactsDialog(this, projectRoot).setVisible(true));
-        bumpVersion.setFont(Theme.font(10, Font.BOLD));
-        bumpVersion.setBorder(new EmptyBorder(4, 8, 4, 8));
-        bumpVersion.addActionListener(e -> incrementVersion());
-        JButton devices = Ui.button(t("Cihazlar"), false);
-        devices.setFont(Theme.font(10, Font.BOLD));
-        devices.setBorder(new EmptyBorder(4, 8, 4, 8));
-        devices.addActionListener(e -> new DeviceDialog(this, projectRoot, lastApk).setVisible(true));
-        logTools.add(artifacts);
-        logTools.add(bumpVersion);
-        logTools.add(devices);
-        aiFix.setFont(Theme.font(10, Font.BOLD));
-        aiFix.setBorder(new EmptyBorder(4, 8, 4, 8));
-        logTools.add(aiFix);
         logTools.add(clear);
         logHead.add(logTools, BorderLayout.EAST);
         logCard.add(logHead, BorderLayout.NORTH);
         JScrollPane logScroll = Ui.scroll(log);
-        logScroll.setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
+        logScroll.setBorder(null);
         logCard.add(logScroll, BorderLayout.CENTER);
         root.add(logCard, BorderLayout.CENTER);
 
-        JPanel footer = Ui.card(new BorderLayout(0, 9));
+        JPanel footer = Ui.flatCard(new BorderLayout(0, 9));
         footer.setBorder(new EmptyBorder(12, 15, 12, 15));
         license.setOpaque(false);
         license.setForeground(Theme.MUTED);
@@ -230,12 +211,54 @@ public final class BuildDialog extends JDialog {
         progress.setBorderPainted(false);
         footer.add(progress, BorderLayout.CENTER);
 
-        JPanel actions = new JPanel(new BorderLayout(8, 0));
-        actions.setOpaque(false);
-        JPanel secondaryActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 7, 0));
-        secondaryActions.setOpaque(false);
-        JPanel primaryActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 7, 0));
-        primaryActions.setOpaque(false);
+        JButton more = Ui.button("⋯  " + t("Daha Fazla"), false);
+        more.setFont(Theme.font(10, Font.BOLD));
+        more.setBorder(new EmptyBorder(4, 8, 4, 8));
+        JPopupMenu moreMenu = new JPopupMenu();
+        JMenuItem prepareItem = new JMenuItem(t("Araçları Hazırla"));
+        prepareItem.addActionListener(e -> prepareSdk());
+        JMenuItem openItem = new JMenuItem(t("Çıktı Klasörünü Aç"));
+        openItem.addActionListener(e -> openApkFolder());
+        JMenuItem adbItem = new JMenuItem(t("ADB ile Yükle"));
+        adbItem.addActionListener(e -> installApk());
+        JMenuItem artifactsItem = new JMenuItem(t("Çıktılar"));
+        artifactsItem.addActionListener(e -> new ArtifactsDialog(this, projectRoot).setVisible(true));
+        JMenuItem versionItem = new JMenuItem(t("Sürüm +1"));
+        versionItem.addActionListener(e -> incrementVersion());
+        JMenuItem devicesItem = new JMenuItem(t("Cihazlar"));
+        devicesItem.addActionListener(e -> new DeviceDialog(this, projectRoot, lastApk).setVisible(true));
+        JMenuItem issueItem = new JMenuItem(t("Hata Satırına Git"));
+        issueItem.addActionListener(e -> { if (lastIssue != null) navigateTo(lastIssue); });
+        JMenuItem aiItem = new JMenuItem(t("AI ile Düzelt"));
+        aiItem.addActionListener(e -> {
+            if (buildFix != null && !lastFailureLog.isBlank()) {
+                dispose();
+                buildFix.accept(lastFailureLog);
+            }
+        });
+        moreMenu.add(prepareItem);
+        moreMenu.add(openItem);
+        moreMenu.add(adbItem);
+        moreMenu.addSeparator();
+        moreMenu.add(artifactsItem);
+        moreMenu.add(versionItem);
+        moreMenu.add(devicesItem);
+        moreMenu.addSeparator();
+        moreMenu.add(issueItem);
+        moreMenu.add(aiItem);
+        moreMenu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                prepareItem.setEnabled(prepare.isEnabled());
+                openItem.setEnabled(openApk.isEnabled());
+                adbItem.setEnabled(adbInstall.isEnabled());
+                issueItem.setEnabled(goIssue.isEnabled());
+                aiItem.setEnabled(aiFix.isEnabled());
+            }
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) { }
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) { }
+        });
+        more.addActionListener(e -> moreMenu.show(more, 0, more.getHeight()));
+
         prepare.addActionListener(e -> prepareSdk());
         output.addActionListener(e -> chooseOutput());
         openApk.addActionListener(e -> openApkFolder());
@@ -243,27 +266,23 @@ public final class BuildDialog extends JDialog {
         adbInstall.setEnabled(false);
         goIssue.setEnabled(false);
         goIssue.setForeground(Theme.ACCENT);
-        goIssue.addActionListener(e -> { if (lastIssue != null) navigateTo(lastIssue); });
         aiFix.setEnabled(false);
         aiFix.setForeground(Theme.BLUE);
-        aiFix.addActionListener(e -> {
-            if (buildFix != null && !lastFailureLog.isBlank()) {
-                dispose();
-                buildFix.accept(lastFailureLog);
-            }
-        });
         cancel.setEnabled(false);
+        cancel.setVisible(false);
         cancel.addActionListener(e -> cancelBuild());
         retry.setEnabled(false);
+        retry.setVisible(false);
         retry.addActionListener(e -> { if (retryAction != null) retryAction.run(); });
-        secondaryActions.add(goIssue);
-        secondaryActions.add(prepare);
-        secondaryActions.add(openApk);
-        secondaryActions.add(adbInstall);
+
+        JPanel actions = new JPanel(new BorderLayout(8, 0));
+        actions.setOpaque(false);
+        JPanel primaryActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 7, 0));
+        primaryActions.setOpaque(false);
         primaryActions.add(retry);
         primaryActions.add(cancel);
         primaryActions.add(output);
-        actions.add(secondaryActions, BorderLayout.WEST);
+        actions.add(more, BorderLayout.WEST);
         actions.add(primaryActions, BorderLayout.EAST);
         footer.add(actions, BorderLayout.SOUTH);
         root.add(footer, BorderLayout.SOUTH);
@@ -452,7 +471,9 @@ public final class BuildDialog extends JDialog {
     private <T> void runTask(String title, Runnable retryTask, Task<T> task) {
         retryAction = retryTask;
         retry.setEnabled(false);
+        retry.setVisible(false);
         cancel.setEnabled(true);
+        cancel.setVisible(true);
         lastFailureLog = "";
         aiFix.setEnabled(false);
         prepare.setEnabled(false);
@@ -465,6 +486,7 @@ public final class BuildDialog extends JDialog {
             @Override protected void done() {
                 activeWorker = null;
                 cancel.setEnabled(false);
+                cancel.setVisible(false);
                 prepare.setEnabled(true);
                 output.setEnabled(true);
                 progress.setVisible(false);
@@ -496,6 +518,7 @@ public final class BuildDialog extends JDialog {
                     lastFailureLog = logTail(14_000);
                     aiFix.setEnabled(buildFix != null && !lastFailureLog.isBlank());
                     retry.setEnabled(retryAction != null);
+                    retry.setVisible(retryAction != null);
                     String suffix = lastIssue == null ? "" : t("\n\nKaynak konumu bulundu. 'Hata Satırına Git' düğmesini kullanabilirsiniz.");
                     JOptionPane.showMessageDialog(BuildDialog.this,
                             friendlyError(cause) + suffix, t("İşlem başarısız"), JOptionPane.ERROR_MESSAGE);

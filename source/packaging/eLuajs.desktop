@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=eLuajs
-Comment=eLuajs 1.5.5 - Lightweight Android Java IDE + APK/AAB
+Comment=eLuajs 1.5.6 - Lightweight Android Java IDE + APK/AAB
 Exec=sh -c 'cd "$(dirname "%k")" && ./eLuajs'
 Icon=eluajs
 Terminal=false

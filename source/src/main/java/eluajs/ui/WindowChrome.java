@@ -22,6 +22,10 @@ public final class WindowChrome {
     public static void install(JDialog dialog) {
         dialog.setUndecorated(true);
         dialog.getRootPane().setBorder(BorderFactory.createLineBorder(Theme.BORDER_SOFT));
+        dialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        dialog.getRootPane().registerKeyboardAction(e -> close(dialog),
+                KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
         if (dialog.isResizable()) installResizer(dialog);
     }
 

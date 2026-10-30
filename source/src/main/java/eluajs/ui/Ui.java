@@ -56,6 +56,7 @@ public final class Ui {
     }
 
     public static JPanel card(LayoutManager layout) { return new RoundedPanel(layout, Theme.PANEL, Theme.BORDER_SOFT, 10); }
+    public static JPanel flatCard(LayoutManager layout) { return new RoundedPanel(layout, Theme.PANEL, null, 10); }
     public static JPanel softCard(LayoutManager layout) { return new RoundedPanel(layout, Theme.PANEL_2, Theme.BORDER_SOFT, 8); }
 
     public static JLabel sectionLabel(String text) {

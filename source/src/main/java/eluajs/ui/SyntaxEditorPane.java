@@ -41,6 +41,7 @@ public final class SyntaxEditorPane extends JTextPane {
     private int fontSize = 14;
     private final List<Fold> folds = new ArrayList<>();
     private final List<Object> bracketTags = new ArrayList<>();
+    private final List<Object> colorTags = new ArrayList<>();
     private int foldSerial;
     private boolean foldingOperation;
     private record Fold(String marker, String hidden) { }
@@ -78,6 +79,7 @@ public final class SyntaxEditorPane extends JTextPane {
     private static final Pattern IDENTIFIER = Pattern.compile("\\b[A-Za-z_$][A-Za-z0-9_$]{2,}\\b");
     private static final Pattern JSON_KEYS = Pattern.compile("\"(?:\\\\.|[^\"\\\\])*\"(?=\\s*:)");
     private static final Pattern JSON_BOOLS = Pattern.compile("\\b(true|false|null)\\b");
+    private static final Pattern HEX_COLOR = Pattern.compile("#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\\b");
 
     private static final List<String> COMPLETIONS = List.of(
             "Activity", "Bundle", "Intent", "Context", "View", "Button", "TextView", "EditText", "ImageView",
@@ -316,6 +318,8 @@ public final class SyntaxEditorPane extends JTextPane {
         fold.addActionListener(e -> toggleFoldAtCaret());
         JMenuItem unfold = new JMenuItem(t("Tümünü Aç"));
         unfold.addActionListener(e -> unfoldAll());
+        JMenuItem color = new JMenuItem(t("Renk Seçici"));
+        color.addActionListener(e -> pickColor());
         JMenuItem zoomIn = new JMenuItem(t("Yakınlaştır"));
         zoomIn.addActionListener(e -> setZoom(fontSize + 1));
         JMenuItem zoomOut = new JMenuItem(t("Uzaklaştır"));
@@ -332,6 +336,8 @@ public final class SyntaxEditorPane extends JTextPane {
         menu.addSeparator();
         menu.add(fold);
         menu.add(unfold);
+        menu.addSeparator();
+        menu.add(color);
         menu.addSeparator();
         menu.add(zoomIn);
         menu.add(zoomOut);
@@ -478,6 +484,26 @@ public final class SyntaxEditorPane extends JTextPane {
         }
     }
 
+    private void highlightColors() {
+        Highlighter highlighter = getHighlighter();
+        for (Object tag : colorTags) highlighter.removeHighlight(tag);
+        colorTags.clear();
+        String text;
+        try { text = super.getText(); } catch (Exception ex) { return; }
+        Matcher matcher = HEX_COLOR.matcher(text);
+        while (matcher.find()) {
+            try {
+                String value = matcher.group();
+                int r = Integer.parseInt(value.substring(1, 3), 16);
+                int g = Integer.parseInt(value.substring(3, 5), 16);
+                int b = Integer.parseInt(value.substring(5, 7), 16);
+                int a = value.length() == 9 ? Integer.parseInt(value.substring(7, 9), 16) : 70;
+                colorTags.add(highlighter.addHighlight(matcher.start(), matcher.end(),
+                        new DefaultHighlighter.DefaultHighlightPainter(new Color(r, g, b, Math.max(35, a)))));
+            } catch (Exception ignored) { }
+        }
+    }
+
     private void highlightMatchingBracket() {
         Highlighter highlighter = getHighlighter();
         for (Object tag : bracketTags) highlighter.removeHighlight(tag);
@@ -530,6 +556,13 @@ public final class SyntaxEditorPane extends JTextPane {
             }
         }
         return -1;
+    }
+
+    private void pickColor() {
+        Color chosen = JColorChooser.showDialog(this, t("Renk Seçici"), Color.WHITE);
+        if (chosen == null) return;
+        String hex = String.format("#%02X%02X%02X", chosen.getRed(), chosen.getGreen(), chosen.getBlue());
+        replaceSelection(hex);
     }
 
     private void toggleFoldAtCaret() {

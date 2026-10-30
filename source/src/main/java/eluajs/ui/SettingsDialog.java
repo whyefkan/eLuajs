@@ -48,7 +48,7 @@ public final class SettingsDialog extends JDialog {
     private final JCheckBox showKey = new JCheckBox(t("Show"));
     private final JLabel status = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
     private final JLabel savedProviders = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
-    private final JComboBox<String> themeCombo = new JComboBox<>(new String[]{t("Dark"), t("Light")});
+    private final JComboBox<String> themeCombo = new JComboBox<>(new String[]{t("Dark"), t("Light"), t("Pure Black")});
     private final JCheckBox autoUpdate = new JCheckBox(t("Check for updates automatically on startup"));
     private final JLabel updateStatus = Ui.label("", 11, Font.PLAIN, Theme.MUTED);
 
@@ -228,7 +228,7 @@ public final class SettingsDialog extends JDialog {
         styleCombo(themeCombo);
         themeCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
         themeCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
-        themeCombo.setSelectedIndex(Theme.isLight() ? 1 : 0);
+        themeCombo.setSelectedIndex(switch (Theme.mode()) { case "light" -> 1; case "black" -> 2; default -> 0; });
         themeBody.add(themeCombo);
         JLabel themeNote = Ui.label(t("Theme changes are applied when you restart eLuajs."), 10, Font.PLAIN, Theme.MUTED);
         themeNote.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -589,7 +589,7 @@ public final class SettingsDialog extends JDialog {
         loadingProvider = false;
         refreshSavedProviders();
         autoUpdate.setSelected(updateConfig.autoCheck());
-        themeCombo.setSelectedIndex(Theme.isLight() ? 1 : 0);
+        themeCombo.setSelectedIndex(switch (Theme.mode()) { case "light" -> 1; case "black" -> 2; default -> 0; });
     }
 
     private void loadProviderFields() {
@@ -713,9 +713,9 @@ public final class SettingsDialog extends JDialog {
         config.save();
         updateConfig.setAutoCheck(autoUpdate.isSelected());
         updateConfig.save();
-        boolean light = themeCombo.getSelectedIndex() == 1;
-        if (light != Theme.isLight()) {
-            Theme.setLight(light);
+        String theme = switch (themeCombo.getSelectedIndex()) { case 1 -> "light"; case 2 -> "black"; default -> "dark"; };
+        if (!theme.equals(Theme.mode())) {
+            Theme.setMode(theme);
             languageChanged = true;
         }
         LangItem selected = (LangItem) languageCombo.getSelectedItem();

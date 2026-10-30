@@ -67,23 +67,27 @@ All links below always point to the **latest release**.
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v151.png) | ![Editor](docs/editor-v151.png) |
+| ![Hub](docs/hub-v156.png) | ![Editor](docs/editor-v156.png) |
 
 <p align="center">
-  <img src="docs/ai-v151.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v156.png" alt="eLuajs AI assistant">
 </p>
 
 <p align="center">
-  <img src="docs/build-v154.png" alt="eLuajs build output window">
+  <img src="docs/tools-v156.png" alt="eLuajs project tools">
 </p>
 
 <p align="center">
-  <img src="docs/output-v154.png" alt="eLuajs output chooser">
+  <img src="docs/build-v156.png" alt="eLuajs build output window">
+</p>
+
+<p align="center">
+  <img src="docs/output-v156.png" alt="eLuajs output chooser">
 </p>
 
 ## Features
 
-- **VS Code-style shell** — activity bar, explorer sidebar, multi-file tabs, split view, output/problems/search panel, custom window controls, dark/light themes and theme-aware scrollbars.
+- **VS Code-style shell** — activity bar, explorer sidebar, multi-file tabs, split view, output/problems/search panel, custom window controls, dark, light and pure-black themes with theme-aware scrollbars.
 - **Editor built for coding** — syntax highlighting, line numbers, undo/redo (`Ctrl+Z` / `Ctrl+Y`), auto-indent, bracket matching, editor find/replace, zoom, block folding, `Ctrl+Space` completion, `Ctrl+Shift+F` project search and automatic imports.
 - **Project tools** — import existing Android projects, starter templates, file/folder/layout operations, new activities, Java classes, assets, Gradle libraries, permissions and AndroidManifest editing.
 - **Project settings** — compile/min/target SDK, versionCode/versionName and Gradle performance options.
@@ -123,7 +127,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - `1.5.2` kept both APK and AAB actions visible in the build window.
 - `1.5.3` simplified output selection into a single **Çıktı Al** action.
 - `1.5.4` added the custom output chooser window and made AI continue after file-reading replies.
-- `1.5.5` is the reliability pack: autosave/session restore, project watcher, build cancel/clean/offline/retry, quick open, command palette, line operations, ADB logcat, AI stop/retry/audit and project rules.
+- `1.5.5` was the reliability pack: autosave/session restore, project watcher, build cancel/clean/offline/retry, quick open, command palette, line operations, ADB logcat, AI stop/retry/audit and project rules.
+- `1.5.6` adds the redesigned project tools hub with inline settings, checkpoints, accessibility, notes, references, translations, assets, Gradle libraries, permissions, APK diff, release notes and focus mode, plus English/Turkish UI fixes.
 - Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.

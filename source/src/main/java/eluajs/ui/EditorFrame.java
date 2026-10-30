@@ -76,6 +76,10 @@ public final class EditorFrame extends JFrame {
     private Ui.ActivityButton pagesActivity;
     private Ui.ActivityButton aiActivity;
     private AiPanel aiPanel;
+    private JComponent activityBarComponent;
+    private JComponent sidebarComponent;
+    private JComponent statusBarComponent;
+    private boolean focusMode;
     private final CardLayout bottomCards = new CardLayout();
     private final JPanel bottomContent = new JPanel(bottomCards);
     private final JPanel bottomTabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -99,6 +103,7 @@ public final class EditorFrame extends JFrame {
     private final Timer sessionTimer = new Timer(5000, e -> saveSession());
     private ProjectWatcher watcher;
     private boolean restoringSession;
+    private ProjectToolsDialog toolsDialog;
 
     public EditorFrame(ProjectMeta meta, Runnable onCloseRefresh) {
         super("eLuajs " + HubFrame.VERSION + " — " + meta.appName());
@@ -121,7 +126,8 @@ public final class EditorFrame extends JFrame {
         setLayout(new BorderLayout());
         add(titleBar(), BorderLayout.NORTH);
         add(body(), BorderLayout.CENTER);
-        add(statusBar(), BorderLayout.SOUTH);
+        statusBarComponent = statusBar();
+        add(statusBarComponent, BorderLayout.SOUTH);
         installShortcuts();
         ProjectMigrator.Result migration = ProjectMigrator.migrate(meta.rootDir());
         reloadTree();
@@ -200,11 +206,13 @@ public final class EditorFrame extends JFrame {
     private JComponent body() {
         JPanel body = new JPanel(new BorderLayout());
         body.setBackground(Theme.BG);
-        body.add(activityBar(), BorderLayout.WEST);
+        activityBarComponent = activityBar();
+        body.add(activityBarComponent, BorderLayout.WEST);
 
         JPanel center = new JPanel(new BorderLayout());
         center.setBackground(Theme.BG);
-        center.add(sidebar(), BorderLayout.WEST);
+        sidebarComponent = sidebar();
+        center.add(sidebarComponent, BorderLayout.WEST);
         center.add(workspace(), BorderLayout.CENTER);
         aiPanel.setVisible(false);
         center.add(aiPanel, BorderLayout.EAST);
@@ -226,15 +234,9 @@ public final class EditorFrame extends JFrame {
 
         bar.add(Ui.activityButton("search", t("Projede ara (Ctrl+Shift+F)"), this::showProjectSearch));
         bar.add(Box.createVerticalStrut(4));
-        bar.add(Ui.activityButton("assets", t("Assets / görsel ve ses ekle"), this::openAssets));
-        bar.add(Box.createVerticalStrut(4));
-        bar.add(Ui.activityButton("library", t("Gradle kütüphaneleri"), this::openLibraries));
-        bar.add(Box.createVerticalStrut(4));
-        bar.add(Ui.activityButton("permissions", t("Android izinleri"), this::openPermissions));
-        bar.add(Box.createVerticalStrut(4));
         bar.add(Ui.activityButton("git", t("Git"), () -> new GitDialog(this, meta.rootDir()).setVisible(true)));
         bar.add(Box.createVerticalStrut(4));
-        bar.add(Ui.activityButton("tune", t("Proje Ayarları"), this::openProjectSettings));
+        bar.add(Ui.activityButton("tune", t("Proje Araçları"), this::openTools));
         bar.add(Box.createVerticalStrut(14));
         aiActivity = Ui.activityButton("ai", t("Yapay Zeka Asistanı (Ctrl+Alt+A)"), this::toggleAiPanel);
         bar.add(aiActivity);
@@ -1322,6 +1324,70 @@ public final class EditorFrame extends JFrame {
         updateTabTitle(tab);
     }
 
+    private void openTools() {
+        if (toolsDialog != null && toolsDialog.isDisplayable()) {
+            toolsDialog.toFront();
+            toolsDialog.requestFocus();
+            return;
+        }
+        toolsDialog = new ProjectToolsDialog(this, java.util.List.of(
+                new ProjectToolsDialog.Tool(t("Proje Ayarları"), t("SDK, sürüm ve Gradle ayarları"),
+                        () -> new ProjectSettingsPanel(meta.rootDir(), () -> {
+                            appendConsole(t("Proje ayarları kaydedildi."));
+                            reloadTree();
+                        })),
+                new ProjectToolsDialog.Tool(t("Proje Checkpoint'leri"), t("Projeyi anlık görüntüle ve geri yükle"),
+                        () -> ProjectToolsPanels.checkpoints(meta.rootDir(), this::reloadTree)),
+                new ProjectToolsDialog.Tool(t("Erişilebilirlik Denetçisi"), t("XML layout erişilebilirlik sorunları"),
+                        () -> ProjectToolsPanels.accessibility(meta.rootDir(), this::openFileAtLine)),
+                new ProjectToolsDialog.Tool(t("Proje Notları"), t("Proje bazlı Markdown notları"),
+                        () -> ProjectToolsPanels.notes(meta.rootDir())),
+                new ProjectToolsDialog.Tool(t("Referans Haritası"), t("Sınıf, layout ve string kullanımlarını bul"),
+                        () -> ProjectToolsPanels.references(meta.rootDir(), this::openFileAtLine)),
+                new ProjectToolsDialog.Tool(t("Çeviri Durumu"), t("Locale dosyalarındaki eksik çeviriler"),
+                        () -> ProjectToolsPanels.localization(meta.rootDir())),
+                new ProjectToolsDialog.Tool(t("Assets"), t("Görsel, ses ve font ekle"),
+                        () -> ManagerPanels.assets(meta.rootDir(), () -> {
+                            reloadTree();
+                            appendConsole(t("Asset ağacı yenilendi."));
+                        })),
+                new ProjectToolsDialog.Tool(t("Gradle Kütüphaneleri"), t("Bağımlılıkları yönet"),
+                        () -> ManagerPanels.libraries(meta.rootDir(), () -> {
+                            reloadTree();
+                            appendConsole(t("Gradle kütüphaneleri güncellendi."));
+                        }, this::openFile)),
+                new ProjectToolsDialog.Tool(t("Android İzinleri"), t("Manifest izinlerini düzenle"),
+                        () -> ManagerPanels.permissions(meta.rootDir(), () -> {
+                            reloadTree();
+                            appendConsole(t("Android izinleri güncellendi."));
+                        }, this::openFile)),
+                new ProjectToolsDialog.Tool(t("Cihazlar ve Logcat"), t("ADB cihazları, APK yükleme ve logcat"),
+                        () -> ProjectToolsPanels.action(t("Cihazlar ve Logcat"), t("Bağlı cihazları, APK yüklemeyi ve logcat çıktısını yönetin."), t("Cihazları Yönet"), () -> new DeviceDialog(this, meta.rootDir(), null).setVisible(true))),
+                new ProjectToolsDialog.Tool(t("Çoklu Cihaza Yükle"), t("Aynı APK'yı seçili cihazlara kur"),
+                        () -> ProjectToolsPanels.action(t("Çoklu Cihaza Yükle"), t("Aynı APK'yı birden fazla bağlı cihaza kurun."), t("APK Yükle"), () -> new BatchInstallDialog(this).setVisible(true))),
+                new ProjectToolsDialog.Tool(t("APK / AAB Diff"), t("İki çıktı arasındaki dosya ve boyut farkları"),
+                        () -> ProjectToolsPanels.artifactDiff(meta.rootDir())),
+                new ProjectToolsDialog.Tool(t("Sürüm Notları"), t("VersionCode artır ve Git geçmişinden not üret"),
+                        () -> ProjectToolsPanels.releaseNotes(meta.rootDir())),
+                new ProjectToolsDialog.Tool(t("Focus Mode"), t("Kenar çubuklarını gizleyerek sadece koda odaklan"),
+                        () -> ProjectToolsPanels.focus(() -> focusMode, this::toggleFocusMode))
+        ));
+        toolsDialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent e) { toolsDialog = null; }
+        });
+        toolsDialog.setVisible(true);
+    }
+
+    private void toggleFocusMode() {
+        focusMode = !focusMode;
+        if (activityBarComponent != null) activityBarComponent.setVisible(!focusMode);
+        if (sidebarComponent != null) sidebarComponent.setVisible(!focusMode);
+        if (statusBarComponent != null) statusBarComponent.setVisible(!focusMode);
+        if (focusMode && aiPanel != null && aiPanel.isVisible()) hideAiPanel();
+        revalidate();
+        repaint();
+    }
+
     private void openProjectSettings() {
         if (!saveAllTabs()) return;
         new ProjectSettingsDialog(this, meta.rootDir(), () -> {
@@ -1411,6 +1477,7 @@ public final class EditorFrame extends JFrame {
         commands.add(new CommandPaletteDialog.Command(t("Yeni Dosya"), "", () -> newTreeFile(treeTarget())));
         commands.add(new CommandPaletteDialog.Command(t("Yeni Java sınıfı"), "Ctrl+Shift+N", this::newJavaClass));
         commands.add(new CommandPaletteDialog.Command(t("Bölmeyi Aç/Kapat"), "Ctrl+\\", this::toggleSplit));
+        commands.add(new CommandPaletteDialog.Command(t("Focus Mode"), "", this::toggleFocusMode));
         commands.add(new CommandPaletteDialog.Command(t("Dosya ağacını yenile"), "", this::reloadTree));
         commands.add(new CommandPaletteDialog.Command(t("Yapay Zeka Asistanı"), "Ctrl+Alt+A", this::toggleAiPanel));
         new CommandPaletteDialog(this, commands).setVisible(true);

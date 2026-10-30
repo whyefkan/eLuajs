@@ -321,6 +321,12 @@ public final class AiPanel extends JPanel {
         send.setEnabled(!busy && !prompt.getText().trim().isEmpty());
     }
 
+    public void reviewProject() {
+        prompt.setText("Review the current project changes for bugs, Android compatibility, permissions and obvious performance problems. "
+                + "Do not modify files; give a concise review with file references and suggest fixes.");
+        send();
+    }
+
     public void fixBuild(String buildLog) {
         if (buildLog == null) buildLog = "";
         String text = "The Android build failed. Diagnose the cause, inspect the relevant files, and fix the project. "

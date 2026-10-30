@@ -75,6 +75,9 @@ final class DeviceDialog extends JDialog {
         install.addActionListener(e -> installApk());
         actions.add(refresh);
         actions.add(install);
+        JButton explain = Ui.button(t("Açıkla"), false);
+        explain.addActionListener(e -> explainSelected());
+        actions.add(explain);
         actions.add(start);
         actions.add(stop);
         top.add(actions, BorderLayout.EAST);
@@ -142,6 +145,33 @@ final class DeviceDialog extends JDialog {
             }
         };
         worker.execute();
+    }
+
+    private void explainSelected() {
+        String selected = log.getSelectedText();
+        if (selected == null || selected.isBlank()) {
+            int pos = log.getCaretPosition();
+            try {
+                int start = javax.swing.text.Utilities.getRowStart(log, pos);
+                int end = javax.swing.text.Utilities.getRowEnd(log, pos);
+                selected = log.getText(start, end - start);
+            } catch (Exception ignored) { }
+        }
+        if (selected == null || selected.isBlank()) return;
+        String lower = selected.toLowerCase(java.util.Locale.ROOT);
+        String explanation;
+        if (lower.contains("nullpointerexception")) explanation = t("Bir nesne null iken kullanılmış. İlgili değişkeni ve yaşam döngüsünü kontrol edin.");
+        else if (lower.contains("classnotfound") || lower.contains("noclassdeffound")) explanation = t("Bir sınıf bulunamadı. Gradle bağımlılığını ve paket adını kontrol edin.");
+        else if (lower.contains("permission")) explanation = t("İzin hatası olabilir. Manifest iznini ve çalışma zamanı iznini kontrol edin.");
+        else if (lower.contains("outofmemory")) explanation = t("Bellek yetersiz. Büyük görselleri küçültün ve kaynakları serbest bırakın.");
+        else if (lower.contains("fatal exception")) explanation = t("Uygulama çökmüş. Bu satırın üstündeki ilk uygulama stack trace satırına bakın.");
+        else explanation = t("Seçili log satırı için yerel bir açıklama bulunamadı. AI asistanına bu satırı gönderebilirsiniz.");
+        JTextArea area = new JTextArea(selected + "\n\n" + explanation);
+        area.setEditable(false);
+        area.setFont(Theme.mono(11));
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        JOptionPane.showMessageDialog(this, new JScrollPane(area), t("Log Açıklaması"), JOptionPane.INFORMATION_MESSAGE);
     }
 
     private void startLogcat() {
