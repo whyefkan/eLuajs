@@ -4072,4 +4072,15 @@ public final class I18n {
         en("Karşılaştırılıyor...", "Comparing...");
     }
 
+    static {
+        tr("Created page: %s", "Sayfa oluşturuldu: %s");
+        tr("AI could not create page: %s", "AI sayfa oluşturamadı: %s");
+        tr("Validation: %s", "Doğrulama: %s");
+        tr("Yükleniyor...", "Yükleniyor...");
+    }
+
+    static {
+        tr("Validation issues remain; check the Problems panel.", "Doğrulama sorunları devam ediyor; Sorunlar panelini kontrol edin.");
+    }
+
 }

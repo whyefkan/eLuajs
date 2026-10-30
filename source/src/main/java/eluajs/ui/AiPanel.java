@@ -9,6 +9,11 @@ import eluajs.ai.AiAudit;
 import eluajs.ai.AiProvider;
 import eluajs.ai.AiResult;
 import eluajs.ai.ProjectContext;
+import eluajs.ai.ProjectIndex;
+import eluajs.project.ProjectCheckpoints;
+import eluajs.project.ProjectPageScaffold;
+import eluajs.project.ProjectSearch;
+import eluajs.project.ProjectValidator;
 import eluajs.util.FileUtil;
 
 import javax.swing.*;
@@ -43,29 +48,43 @@ public final class AiPanel extends JPanel {
             "(?s)```[ \\t]*[A-Za-z0-9_+.#-]*[ \\t]*\\R(.*?)```");
     private static final Pattern WRITE_BLOCK = Pattern.compile(
             "(?ms)^[ \\t]*WRITE:[ \\t]*(.+?)[ \\t]*\\R[ \\t]*```[^\\n]*\\R(.*?)```[ \\t]*");
+    private static final Pattern PATCH_BLOCK = Pattern.compile(
+            "(?ms)^[ \\t]*PATCH:[ \\t]*(.+?)[ \\t]*\\R<<<<<<< SEARCH\\R(.*?)^=======\\R(.*?)^>>>>>>> REPLACE[ \\t]*$");
     private static final String SYSTEM_PROMPT = """
             You are eLuajs AI, an autonomous Android Java coding agent inside the eLuajs IDE.
             eLuajs creates real Android Gradle projects with Java + XML and builds APKs/AABs.
-            Keep solutions lightweight and compatible with the project toolchain.
+            Keep solutions lightweight and compatible with the project toolchain. Minimize token use.
 
-            You edit the project by returning commands. The app applies them automatically.
+            Use only these commands:
             - READ: relative/path/File.java
-              (request up to 4 files; a short explanation is allowed, the app ignores other text)
-            - WRITE: relative/path/File.java
+              Optional line range: READ: relative/path/File.java#40-120
+            - SEARCH: text
+              Find text across the project (at most 2 searches).
+            - PATCH: relative/path/File.java
+              <<<<<<< SEARCH
+              exact existing text
+              =======
+              replacement text
+              >>>>>>> REPLACE
+            - WRITE: relative/path/NewFile.java
               ```java
               <COMPLETE file content>
               ```
+              Use WRITE for new files or when a full-file rewrite is truly needed.
             - DELETE: relative/path/File.java
+            - CREATE_PAGE: Settings
+              Creates SettingsActivity.java, activity_settings.xml, strings and the Manifest entry together.
 
             Rules:
-            - Inspect relevant files before editing.
-            - To change a file, return a WRITE block with the COMPLETE file content. Never use placeholders or patches.
-            - Never claim that you changed a file unless you returned a WRITE or DELETE command.
+            - Inspect relevant files before editing; prefer READ line ranges and SEARCH over full files.
+            - For existing files, use PATCH; keep the SEARCH text exact and unique. Use WRITE only for new files or full rewrites.
+            - Never use placeholders or patches that cannot match exactly.
+            - Never claim that you changed a file unless you returned a PATCH, WRITE, DELETE or CREATE_PAGE command.
             - Do not write outside the project or into build/, .gradle/, .git/, release/ or .eluajs/.
             - Do not modify unrelated files. Do not invent APIs.
-            - After editing, reply with a short summary of what changed. Do not paste the code again.
-            - If the request needs several files, return all required WRITE/DELETE blocks in the same reply. Do not stop after describing what you will do.
-            - If the user asks a question only, do not use WRITE or DELETE.
+            - If a request needs several linked files, return all required commands in the same reply.
+            - After editing, reply with a short summary. Do not paste the code again.
+            - If the user asks a question only, do not use PATCH, WRITE, DELETE or CREATE_PAGE.
             - The app shows your changes for user approval before applying them.
             """;
 
@@ -76,6 +95,10 @@ public final class AiPanel extends JPanel {
     private static final int MAX_HISTORY_MESSAGES = 120;
     private static final int MAX_VISIBLE_COMPONENTS = 500;
     private static final int MAX_WRITE_CHARS = 500_000;
+    private static final int MAX_SEARCHES_PER_REQUEST = 2;
+    private static final int MAX_SEARCH_RESULTS = 60;
+    private static final int MAX_CONTEXT_CHARS = 100_000;
+    private static final int MAX_VALIDATION_ROUNDS = 2;
     private static final int AI_TEXT_WIDTH = 320;
     private static final int USER_TEXT_WIDTH = 260;
 
@@ -91,6 +114,7 @@ public final class AiPanel extends JPanel {
     private AiProvider lastProvider;
     private final List<AiMessage> history = new ArrayList<>();
     private Map<Path, String> lastUndo = new LinkedHashMap<>();
+    private Path lastCheckpoint;
     private String lastPrompt = "";
     private String sessionId;
     private boolean busy;
@@ -452,6 +476,7 @@ public final class AiPanel extends JPanel {
         sessionId = null;
         lastPrompt = "";
         lastUndo = new LinkedHashMap<>();
+        lastCheckpoint = null;
         undoEdits.setEnabled(false);
         working.stop();
         sessionPrompt = 0;
@@ -487,6 +512,7 @@ public final class AiPanel extends JPanel {
             if (user) lastPrompt = message.content();
         }
         lastUndo = new LinkedHashMap<>();
+        lastCheckpoint = null;
         undoEdits.setEnabled(false);
         sessionPrompt = 0;
         sessionCompletion = 0;
@@ -593,9 +619,9 @@ public final class AiPanel extends JPanel {
 
         JTextArea streamArea = new JTextArea();
         JComponent pending = addStreamingBubble(streamArea);
-        List<AiMessage> messages = new ArrayList<>(history);
         boolean projectAccess = projectRoot != null && Files.isDirectory(projectRoot);
         String system = buildSystemPrompt(projectAccess);
+        List<AiMessage> messages = fitContext(system, requestHistory());
 
         SwingWorker<LoopResult, ProgressEvent> worker = new SwingWorker<>() {
             @Override protected LoopResult doInBackground() throws Exception {
@@ -661,7 +687,7 @@ public final class AiPanel extends JPanel {
                                 AiPricing.formatTokens(result.completionTokens()),
                                 AiPricing.formatCost(result.cost())));
                     }
-                    if (!lastUndo.isEmpty()) undoEdits.setEnabled(true);
+                    if (!lastUndo.isEmpty() || lastCheckpoint != null) undoEdits.setEnabled(true);
                     if (result.filesChanged() && afterFilesChanged != null) {
                         SwingUtilities.invokeLater(afterFilesChanged);
                     } else if (!result.filesChanged() && looksLikeChangeRequest(lastPrompt)) {
@@ -705,6 +731,7 @@ public final class AiPanel extends JPanel {
                                  Consumer<ProgressEvent> progress, Runnable clearStream, Consumer<String> stream) throws Exception {
         List<AiMessage> convo = new ArrayList<>(initial);
         int totalRead = 0;
+        int validationRounds = 0;
         int fileBudget = config.tokenBudgetEnabled()
                 ? (int) Math.min(MAX_TOTAL_FILE_CHARS, Math.max(4_000L, (long) config.tokenBudget() * 3L))
                 : MAX_TOTAL_FILE_CHARS;
@@ -722,18 +749,53 @@ public final class AiPanel extends JPanel {
             cost += AiPricing.estimate(usedProvider, usedModel, result.promptTokens(), result.completionTokens());
             String answer = result.text();
 
-            EditOutcome edit = projectAccess ? applyEditsIfPresent(answer, progress, allowFallback) : EditOutcome.NONE;
-            if (edit.hasEdits()) {
-                return new LoopResult(edit.summary(), promptTokens, completionTokens, totalTokens, cost, edit.changed());
+            List<PageRequest> pages = projectAccess ? parsePageRequests(answer) : List.of();
+            if (!pages.isEmpty()) {
+                StringBuilder summary = new StringBuilder();
+                List<String> errors = new ArrayList<>();
+                try { lastCheckpoint = ProjectCheckpoints.create(projectRoot, "ai-before-page"); }
+                catch (Exception ignored) { }
+                for (PageRequest page : pages) {
+                    try {
+                        ProjectPageScaffold.Result created = ProjectPageScaffold.create(projectRoot, page.name(), page.title());
+                        summary.append(t("Created page: %s", created.className())).append('\n');
+                        progress.accept(new ProgressEvent(EventKind.WRITE, List.of(created.className())));
+                    } catch (Exception ex) {
+                        errors.add(page.name() + ": " + ex.getMessage());
+                    }
+                }
+                if (errors.isEmpty()) {
+                    String validation = validationFailure();
+                    if (!validation.isBlank()) summary.append('\n').append(t("Validation issues remain; check the Problems panel."));
+                    return new LoopResult(summary.toString().trim(), promptTokens, completionTokens, totalTokens, cost, true);
+                }
+                summary.append(t("AI could not create page: %s", String.join("; ", errors)));
+                return new LoopResult(summary.toString(), promptTokens, completionTokens, totalTokens, cost, false);
             }
 
-            List<String> requests = projectAccess ? parseReadRequests(answer) : List.of();
-            if (requests.isEmpty()) {
+            EditOutcome edit = projectAccess ? applyEditsIfPresent(answer, progress, allowFallback) : EditOutcome.NONE;
+            if (edit.hasEdits()) {
+                String validation = validationFailure();
+                if (!validation.isBlank() && validationRounds < MAX_VALIDATION_ROUNDS && round < MAX_FILE_ROUNDS) {
+                    validationRounds++;
+                    convo.add(AiMessage.assistant(answer));
+                    convo.add(AiMessage.user("VALIDATION FAILED after applying your edits.\n"
+                            + validation + "\nFix only the validation problems with PATCH commands, then summarize."));
+                    continue;
+                }
+                String summary = edit.summary();
+                if (!validation.isBlank()) summary += "\n\n" + t("Validation issues remain; check the Problems panel.");
+                return new LoopResult(summary, promptTokens, completionTokens, totalTokens, cost, edit.changed());
+            }
+
+            List<ReadRequest> requests = projectAccess ? parseReadRequests(answer) : List.of();
+            List<SearchRequest> searches = projectAccess ? parseSearchRequests(answer) : List.of();
+            if (requests.isEmpty() && searches.isEmpty()) {
                 if (allowFallback && !nudged && round < MAX_FILE_ROUNDS && looksLikeChangeRequest(lastPrompt)) {
                     nudged = true;
                     convo.add(AiMessage.assistant(answer));
                     convo.add(AiMessage.user("Your previous reply only described the work. Apply the requested changes now. "
-                            + "Return all required WRITE or DELETE blocks with complete file contents."));
+                            + "Use PATCH for existing files and WRITE for new files. Return all required commands."));
                     continue;
                 }
                 return new LoopResult(answer, promptTokens, completionTokens, totalTokens, cost, false);
@@ -754,10 +816,23 @@ public final class AiPanel extends JPanel {
                 return new LoopResult(last.text(), promptTokens, completionTokens, totalTokens, cost, false);
             }
             convo.add(AiMessage.assistant(answer));
-            String contents = readRequestedFiles(requests, fileBudget - totalRead);
-            totalRead += contents.length();
-            progress.accept(new ProgressEvent(EventKind.READ, requests));
-            convo.add(AiMessage.user("REQUESTED FILE CONTENTS:\n" + contents));
+            StringBuilder payload = new StringBuilder();
+            List<String> readPaths = new ArrayList<>();
+            if (!requests.isEmpty()) {
+                String contents = readRequestedFiles(requests, fileBudget - totalRead);
+                totalRead += contents.length();
+                for (ReadRequest request : requests) readPaths.add(request.path());
+                payload.append("REQUESTED FILE CONTENTS:\n").append(contents);
+            }
+            if (!searches.isEmpty()) {
+                String found = searchProject(searches, Math.max(1000, fileBudget - totalRead));
+                totalRead += found.length();
+                if (!payload.isEmpty()) payload.append('\n');
+                payload.append("SEARCH RESULTS:\n").append(found);
+                for (SearchRequest search : searches) readPaths.add("search:" + search.query());
+            }
+            progress.accept(new ProgressEvent(EventKind.READ, readPaths));
+            convo.add(AiMessage.user(payload.toString()));
             if (totalRead >= fileBudget) {
                 convo.add(AiMessage.user("FILE READ LIMIT REACHED. Give the final answer now."));
                 clearStream.run();
@@ -775,9 +850,30 @@ public final class AiPanel extends JPanel {
         }
     }
 
+    private String validationFailure() {
+        if (projectRoot == null || !Files.isDirectory(projectRoot)) return "";
+        try {
+            ProjectValidator.Report report = ProjectValidator.validate(projectRoot);
+            if (report.ok()) return "";
+            StringBuilder b = new StringBuilder();
+            for (String message : report.messages()) {
+                if (b.length() > 4000) break;
+                b.append("- ").append(message).append('\n');
+            }
+            return b.toString().trim();
+        } catch (Exception ex) {
+            return "Validation error: " + ex.getMessage();
+        }
+    }
+
     private EditOutcome applyEditsIfPresent(String answer, Consumer<ProgressEvent> progress, boolean allowFallback) {
-        List<FileWrite> writes = parseWrites(answer);
+        List<FileWrite> writes = new ArrayList<>(parseWrites(answer));
         List<String> deletes = parseDeletes(answer);
+        List<String> patchErrors = new ArrayList<>();
+        List<FileWrite> patched = materializePatches(answer, patchErrors);
+        java.util.Set<String> explicitPaths = new java.util.HashSet<>();
+        for (FileWrite write : writes) explicitPaths.add(write.path());
+        for (FileWrite write : patched) if (!explicitPaths.contains(write.path())) writes.add(write);
         if (!writes.isEmpty() || !deletes.isEmpty()) {
             ApplyResult applied = applyEdits(writes, deletes, progress);
             String summary = stripAllCodeBlocks(stripEditCommands(answer)).trim();
@@ -791,7 +887,13 @@ public final class AiPanel extends JPanel {
             if (!applied.errors().isEmpty() && !summary.contains(applied.errors().get(0))) {
                 summary += "\n\n" + t("Skipped: %s", String.join("; ", applied.errors()));
             }
+            if (!patchErrors.isEmpty()) {
+                summary += "\n\n" + t("Skipped: %s", String.join("; ", patchErrors));
+            }
             return new EditOutcome(true, summary, applied.changed() > 0);
+        }
+        if (!patchErrors.isEmpty()) {
+            return new EditOutcome(true, t("AI could not apply changes: %s", String.join("; ", patchErrors)), false);
         }
 
         // Fallback for change requests where a provider answers with a code block instead of WRITE.
@@ -834,6 +936,11 @@ public final class AiPanel extends JPanel {
         Map<Path, String> undo = new LinkedHashMap<>();
         List<String> errors = new ArrayList<>();
         int changed = 0;
+        try {
+            if (projectRoot != null && (!writes.isEmpty() || !deletes.isEmpty())) {
+                lastCheckpoint = ProjectCheckpoints.create(projectRoot, "ai-before-edit");
+            }
+        } catch (Exception ignored) { }
         for (FileWrite write : writes) {
             Path target = ProjectContext.safeResolve(projectRoot, write.path());
             if (target == null) { errors.add(write.path() + " (not allowed)"); continue; }
@@ -910,6 +1017,48 @@ public final class AiPanel extends JPanel {
         return paths;
     }
 
+    private List<PatchEdit> parsePatches(String answer) {
+        List<PatchEdit> out = new ArrayList<>();
+        if (answer == null) return out;
+        Matcher matcher = PATCH_BLOCK.matcher(answer);
+        while (matcher.find()) {
+            String path = matcher.group(1).trim();
+            String search = matcher.group(2);
+            String replace = matcher.group(3);
+            if (!path.isBlank() && !search.isEmpty()) out.add(new PatchEdit(path, search, replace));
+        }
+        return out;
+    }
+
+    private List<FileWrite> materializePatches(String answer, List<String> errors) {
+        Map<String, String> files = new LinkedHashMap<>();
+        for (PatchEdit patch : parsePatches(answer)) {
+            Path target = ProjectContext.safeResolve(projectRoot, patch.path());
+            if (target == null || !Files.isRegularFile(target)) {
+                errors.add(patch.path() + " (not found)");
+                continue;
+            }
+            try {
+                String rel = projectRoot.toAbsolutePath().normalize()
+                        .relativize(target.toAbsolutePath().normalize()).toString();
+                String old = files.containsKey(rel) ? files.get(rel) : Files.readString(target, StandardCharsets.UTF_8);
+                int first = old.indexOf(patch.search());
+                if (first < 0) { errors.add(patch.path() + " (SEARCH text not found)"); continue; }
+                if (old.indexOf(patch.search(), first + 1) >= 0) {
+                    errors.add(patch.path() + " (SEARCH text is not unique)");
+                    continue;
+                }
+                files.put(rel, old.substring(0, first) + patch.replace()
+                        + old.substring(first + patch.search().length()));
+            } catch (Exception ex) {
+                errors.add(patch.path() + ": " + ex.getMessage());
+            }
+        }
+        List<FileWrite> out = new ArrayList<>();
+        for (var entry : files.entrySet()) out.add(new FileWrite(entry.getKey(), entry.getValue()));
+        return out;
+    }
+
     private List<FileWrite> parseWrites(String answer) {
         List<FileWrite> out = new ArrayList<>();
         if (answer == null) return out;
@@ -928,7 +1077,7 @@ public final class AiPanel extends JPanel {
     private List<String> parseDeletes(String answer) {
         List<String> out = new ArrayList<>();
         if (answer == null) return out;
-        String rest = WRITE_BLOCK.matcher(answer).replaceAll("");
+        String rest = PATCH_BLOCK.matcher(WRITE_BLOCK.matcher(answer).replaceAll("")).replaceAll("");
         boolean inFence = false;
         for (String raw : rest.split("\\R")) {
             String line = raw.trim();
@@ -944,7 +1093,7 @@ public final class AiPanel extends JPanel {
     }
 
     private String stripEditCommands(String answer) {
-        String rest = WRITE_BLOCK.matcher(answer).replaceAll("");
+        String rest = PATCH_BLOCK.matcher(WRITE_BLOCK.matcher(answer).replaceAll("")).replaceAll("");
         StringBuilder out = new StringBuilder();
         boolean inFence = false;
         for (String line : rest.split("\\R", -1)) {
@@ -969,7 +1118,23 @@ public final class AiPanel extends JPanel {
     }
 
     private void undoAiEdits() {
-        if (lastUndo.isEmpty()) return;
+        if (lastUndo.isEmpty()) {
+            if (lastCheckpoint != null && projectRoot != null) {
+                try {
+                    ProjectCheckpoints.restore(projectRoot, lastCheckpoint);
+                    lastCheckpoint = null;
+                    undoEdits.setEnabled(false);
+                    addSystemNote(t("AI edits undone."));
+                    status.setText(t("AI edits undone."));
+                    status.setForeground(Theme.ACCENT);
+                    if (afterFilesChanged != null) afterFilesChanged.run();
+                } catch (Exception ex) {
+                    status.setText(t("Undo failed: %s", ex.getMessage()));
+                    status.setForeground(Theme.DANGER);
+                }
+            }
+            return;
+        }
         List<String> errors = new ArrayList<>();
         for (Map.Entry<Path, String> entry : lastUndo.entrySet()) {
             try {
@@ -1008,14 +1173,14 @@ public final class AiPanel extends JPanel {
     private String buildSystemPrompt(boolean projectAccess) {
         StringBuilder b = new StringBuilder(SYSTEM_PROMPT);
         if (projectAccess) {
-            b.append("\n\nPROJECT FILE TREE:\n").append(ProjectContext.tree(projectRoot));
+            b.append("\n\n").append(ProjectIndex.compact(projectRoot));
         } else {
             b.append("\n\nProject editing is disabled. Return code in fenced blocks and explain where to apply it.\n");
         }
         String rules = projectRules();
         if (!rules.isBlank()) b.append("\n\nPROJECT RULES:\n").append(rules);
         b.append("\n\nCURRENT FILE (").append(fileLabel == null ? "unknown" : fileLabel.get()).append("):\n");
-        b.append(limit(currentFileText(), 20_000));
+        b.append(limit(currentFileText(), 12_000));
         return b.toString();
     }
 
@@ -1030,9 +1195,9 @@ public final class AiPanel extends JPanel {
         return "";
     }
 
-    private List<String> parseReadRequests(String answer) {
+    private List<ReadRequest> parseReadRequests(String answer) {
         if (answer == null) return List.of();
-        List<String> out = new ArrayList<>();
+        List<ReadRequest> out = new ArrayList<>();
         boolean inFence = false;
         for (String raw : answer.split("\\R")) {
             String line = raw.trim();
@@ -1041,23 +1206,96 @@ public final class AiPanel extends JPanel {
             if (inFence) continue;
             while (line.startsWith("- ") || line.startsWith("* ")) line = line.substring(2).trim();
             if (!line.regionMatches(true, 0, "READ:", 0, 5)) continue;
-            String path = line.substring(5).trim();
-            if (path.startsWith("`") && path.endsWith("`") && path.length() > 1) path = path.substring(1, path.length() - 1).trim();
-            if (!path.isBlank() && !out.contains(path)) out.add(path);
+            String value = line.substring(5).trim();
+            if (value.startsWith("`") && value.endsWith("`") && value.length() > 1) value = value.substring(1, value.length() - 1).trim();
+            if (value.isBlank()) continue;
+            int startLine = 0, endLine = 0;
+            int hash = value.indexOf('#');
+            if (hash > 0) {
+                String range = value.substring(hash + 1).trim();
+                value = value.substring(0, hash).trim();
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("L?(\\d+)(?:\\s*[-:]\\s*L?(\\d+))?")
+                        .matcher(range);
+                if (m.find()) {
+                    startLine = Integer.parseInt(m.group(1));
+                    endLine = m.group(2) == null ? startLine + 120 : Integer.parseInt(m.group(2));
+                }
+            }
+            final String readPath = value;
+            if (!readPath.isBlank() && out.stream().noneMatch(r -> r.path().equals(readPath))) {
+                out.add(new ReadRequest(readPath, startLine, endLine));
+            }
             if (out.size() >= MAX_FILES_PER_REQUEST) break;
         }
         return out;
     }
 
-    private String readRequestedFiles(List<String> paths, int budget) {
+    private List<SearchRequest> parseSearchRequests(String answer) {
+        if (answer == null) return List.of();
+        List<SearchRequest> out = new ArrayList<>();
+        boolean inFence = false;
+        for (String raw : answer.split("\\R")) {
+            String line = raw.trim();
+            if (line.startsWith("```")) { inFence = !inFence; continue; }
+            if (inFence) continue;
+            while (line.startsWith("- ") || line.startsWith("* ")) line = line.substring(2).trim();
+            if (!line.regionMatches(true, 0, "SEARCH:", 0, 7)) continue;
+            String query = line.substring(7).trim();
+            if (query.startsWith("`") && query.endsWith("`") && query.length() > 1) query = query.substring(1, query.length() - 1).trim();
+            final String searchQuery = query;
+            if (!searchQuery.isBlank() && out.stream().noneMatch(r -> r.query().equals(searchQuery))) out.add(new SearchRequest(searchQuery));
+            if (out.size() >= MAX_SEARCHES_PER_REQUEST) break;
+        }
+        return out;
+    }
+
+    private List<PageRequest> parsePageRequests(String answer) {
+        if (answer == null) return List.of();
+        List<PageRequest> out = new ArrayList<>();
+        boolean inFence = false;
+        for (String raw : answer.split("\\R")) {
+            String line = raw.trim();
+            if (line.startsWith("```")) { inFence = !inFence; continue; }
+            if (inFence || !line.regionMatches(true, 0, "CREATE_PAGE:", 0, 12)) continue;
+            String value = line.substring(12).trim();
+            if (value.startsWith("`") && value.endsWith("`") && value.length() > 1) value = value.substring(1, value.length() - 1).trim();
+            String[] parts = value.split("\\|", 2);
+            String name = parts[0].trim();
+            String title = parts.length > 1 ? parts[1].trim() : "";
+            if (!name.isBlank()) out.add(new PageRequest(name, title));
+            if (out.size() >= 3) break;
+        }
+        return out;
+    }
+
+    private String readRequestedFiles(List<ReadRequest> requests, int budget) {
         StringBuilder b = new StringBuilder();
-        for (String rel : paths) {
+        for (ReadRequest request : requests) {
             if (b.length() >= budget) break;
-            int room = Math.min(MAX_FILE_CHARS, budget - b.length());
-            String content = ProjectContext.readTextFile(projectRoot, rel, room);
-            b.append("\n===== ").append(rel).append(" =====\n");
+            int room = Math.max(1, Math.min(MAX_FILE_CHARS, budget - b.length()));
+            String content = request.start() > 0
+                    ? ProjectContext.readTextFileRange(projectRoot, request.path(), request.start(), request.end(), room)
+                    : ProjectContext.readTextFile(projectRoot, request.path(), room);
+            b.append("\n===== ").append(request.path());
+            if (request.start() > 0) b.append("#").append(request.start()).append('-').append(request.end());
+            b.append(" =====\n");
             if (content == null) b.append("(File not found, not a text file, or too large.)\n");
             else b.append(content).append('\n');
+        }
+        return b.toString();
+    }
+
+    private String searchProject(List<SearchRequest> searches, int budget) {
+        StringBuilder b = new StringBuilder();
+        for (SearchRequest search : searches) {
+            if (b.length() >= budget) break;
+            List<ProjectSearch.Match> matches = ProjectIndex.search(projectRoot, search.query(), MAX_SEARCH_RESULTS);
+            b.append("QUERY: ").append(search.query()).append(" (").append(matches.size()).append(" results)\n");
+            for (ProjectSearch.Match match : matches) {
+                if (b.length() >= budget) break;
+                b.append(projectRoot.relativize(match.file())).append(':').append(match.line())
+                        .append(": ").append(match.preview()).append('\n');
+            }
         }
         return b.toString();
     }
@@ -1066,6 +1304,48 @@ public final class AiPanel extends JPanel {
         if (text == null) return "";
         if (text.length() <= max) return text;
         return text.substring(0, max) + "\n... (truncated)";
+    }
+
+    private List<AiMessage> requestHistory() {
+        if (history.isEmpty()) return new ArrayList<>();
+        int keep = config.tokenBudgetEnabled() ? 12 : 24;
+        if (history.size() <= keep) return new ArrayList<>(history);
+        int from = history.size() - keep;
+        StringBuilder summary = new StringBuilder("EARLIER CONVERSATION SUMMARY (compact):\n");
+        for (int i = 0; i < from; i++) {
+            AiMessage message = history.get(i);
+            if (message == null || message.content() == null) continue;
+            if (!"user".equals(message.role())) continue;
+            String text = message.content().replaceAll("\\s+", " ").trim();
+            if (text.length() > 180) text = text.substring(0, 177) + "…";
+            summary.append("- ").append(text).append('\n');
+            if (summary.length() > 2400) { summary.append("- …\n"); break; }
+        }
+        List<AiMessage> out = new ArrayList<>();
+        if (summary.length() > 36) out.add(AiMessage.user(summary.toString()));
+        out.addAll(history.subList(from, history.size()));
+        return out;
+    }
+
+    private List<AiMessage> fitContext(String system, List<AiMessage> messages) {
+        int limit = MAX_CONTEXT_CHARS;
+        if (config.tokenBudgetEnabled()) {
+            limit = (int) Math.min(MAX_CONTEXT_CHARS, Math.max(12_000L, (long) config.tokenBudget() * 4L));
+        }
+        List<AiMessage> out = new ArrayList<>(messages);
+        while (chars(system, out) > limit && out.size() > 1) {
+            int remove = 0;
+            if (out.get(0).role().equals("user") && out.get(0).content() != null
+                    && out.get(0).content().startsWith("EARLIER CONVERSATION SUMMARY")) remove = 1;
+            out.remove(remove);
+        }
+        return out;
+    }
+
+    private static int chars(String system, List<AiMessage> messages) {
+        int total = system == null ? 0 : system.length();
+        for (AiMessage m : messages) total += m.content() == null ? 0 : m.content().length();
+        return total;
     }
 
     private String currentFileText() {
@@ -1276,6 +1556,11 @@ public final class AiPanel extends JPanel {
         return "<html><body style='margin:0;width:" + Math.max(80, width - 4)
                 + "px;font-family:SansSerif;font-size:12px;color:" + hex + "'>" + html + "</body></html>";
     }
+
+    private record ReadRequest(String path, int start, int end) {}
+    private record SearchRequest(String query) {}
+    private record PageRequest(String name, String title) {}
+    private record PatchEdit(String path, String search, String replace) {}
 
     private record LoopResult(String text, long promptTokens, long completionTokens, long totalTokens, double cost, boolean filesChanged) { }
     private record ProgressEvent(EventKind kind, List<String> paths) { }

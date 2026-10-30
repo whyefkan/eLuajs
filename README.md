@@ -67,22 +67,22 @@ All links below always point to the **latest release**.
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v156.png) | ![Editor](docs/editor-v156.png) |
+| ![Hub](docs/hub-v157.png) | ![Editor](docs/editor-v157.png) |
 
 <p align="center">
-  <img src="docs/ai-v156.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v157.png" alt="eLuajs AI assistant">
 </p>
 
 <p align="center">
-  <img src="docs/tools-v156.png" alt="eLuajs project tools">
+  <img src="docs/tools-v157.png" alt="eLuajs project tools">
 </p>
 
 <p align="center">
-  <img src="docs/build-v156.png" alt="eLuajs build output window">
+  <img src="docs/build-v157.png" alt="eLuajs build output window">
 </p>
 
 <p align="center">
-  <img src="docs/output-v156.png" alt="eLuajs output chooser">
+  <img src="docs/output-v157.png" alt="eLuajs output chooser">
 </p>
 
 ## Features
@@ -95,6 +95,7 @@ All links below always point to the **latest release**.
 - **Git integration** — status, diff, stage, commit, pull/push, branches and checkout.
 - **AI providers** — latest OpenAI GPT-6 family, Claude Fable/Opus/Sonnet/Haiku 5.x, Gemini 4/3.x, Groq, DeepSeek, OpenRouter, local Ollama, River AI and any OpenAI-compatible endpoint.
 - **AI 2.0** — diff approval, one-click build fix, local Ollama and optional token budget.
+- **AI workspace (1.5.7)** — compact project index, token budgeting, read ranges/search, patch edits, page scaffolding, linked-file context, validation repair, provider retries/prompt caching and AI checkpoints.
 - **Six languages** — English, Turkish, German, French, Spanish and Russian.
 - **Reliability** — crash log, stable-only auto-update and recovery copies for file edits.
 - **Keyboard-friendly** — `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` redo, `Ctrl+Shift+F` search, `Ctrl+Shift+N` new class, `Ctrl+Alt+A` AI panel, `Ctrl+\` split view, `Ctrl+Space` completion, **Enter** send chat, **Shift+Enter** new line.
@@ -128,7 +129,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - `1.5.3` simplified output selection into a single **Çıktı Al** action.
 - `1.5.4` added the custom output chooser window and made AI continue after file-reading replies.
 - `1.5.5` was the reliability pack: autosave/session restore, project watcher, build cancel/clean/offline/retry, quick open, command palette, line operations, ADB logcat, AI stop/retry/audit and project rules.
-- `1.5.6` adds the redesigned project tools hub with inline settings, checkpoints, accessibility, notes, references, translations, assets, Gradle libraries, permissions, APK diff, release notes and focus mode, plus English/Turkish UI fixes.
+- `1.5.6` added the redesigned project tools hub with inline settings, checkpoints, accessibility, notes, references, translations, assets, Gradle libraries, permissions, APK diff, release notes and focus mode, plus English/Turkish UI fixes.
+- `1.5.7` is the AI workspace update: compact project index, token budgeting, read ranges/search, patch edits, page scaffolding, linked-file context, validation repair, provider retries/prompt caching, and AI checkpoints.
 - Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.

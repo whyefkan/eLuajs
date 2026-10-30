@@ -133,6 +133,31 @@ public final class ProjectContext {
         return target;
     }
 
+    /** Reads a line range from one requested project file. */
+    public static String readTextFileRange(Path root, String relative, int startLine, int endLine, int maxChars) {
+        if (root == null || relative == null || relative.isBlank()) return null;
+        try {
+            Path file = safeResolve(root, relative);
+            if (file == null || !Files.isRegularFile(file)) return null;
+            if (Files.size(file) > MAX_FILE_BYTES) return null;
+            String text = Files.readString(file, StandardCharsets.UTF_8);
+            if (text.indexOf('\u0000') >= 0) return null;
+            int start = Math.max(1, startLine);
+            int end = endLine <= 0 ? Integer.MAX_VALUE : Math.max(start, endLine);
+            String[] lines = text.split("\\R", -1);
+            if (start > lines.length) return "";
+            end = Math.min(end, lines.length);
+            StringBuilder out = new StringBuilder();
+            for (int i = start; i <= end; i++) {
+                out.append(i).append(": ").append(lines[i - 1]).append('\n');
+                if (out.length() >= maxChars) { out.append("... (truncated)\n"); break; }
+            }
+            return out.toString();
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
     /** Reads one requested project file for the on-demand AI protocol. */
     public static String readTextFile(Path root, String relative, int maxChars) {
         if (root == null || relative == null || relative.isBlank()) return null;
@@ -154,6 +179,8 @@ public final class ProjectContext {
         }
         return false;
     }
+
+    public static boolean isTextFile(Path p) { return isText(p); }
 
     private static boolean isText(Path p) {
         String name = p.getFileName().toString();
