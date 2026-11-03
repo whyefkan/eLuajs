@@ -4174,4 +4174,24 @@ public final class I18n {
         en("Projede TODO / FIXME tara", "Scan TODO / FIXME in project");
     }
 
+    static {
+        en("Durduruluyor...", "Stopping...");
+        en("Pinned", "Pinned");
+        en("Bu dosyayı sabit context'ten çıkar", "Remove this file from pinned context");
+        en("Signing Vault", "Signing Vault");
+        en("Parmak izini göster", "Show fingerprint");
+        en("Alias (isteğe bağlı)", "Alias (optional)");
+        en("Keystore şifresi", "Keystore password");
+        en("Keystore şifresini girin.", "Enter the keystore password.");
+        en("Kontrol ediliyor...", "Checking...");
+        en("Keystore doğrulandı.", "Keystore verified.");
+        en("Parmak izi bulunamadı.", "Fingerprint not found.");
+        en("Keystore okunamadı.", "Could not read keystore.");
+        en("Vault boş. Release ekranından yeni keystore oluşturun.", "Vault is empty. Create a new keystore from the release screen.");
+        en("%d keystore", "%d keystores");
+        en("AndroidManifest", "AndroidManifest");
+        en("Gradle ayarları", "Gradle settings");
+        en("Application ID", "Application ID");
+    }
+
 }

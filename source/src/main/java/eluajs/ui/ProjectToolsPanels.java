@@ -6,6 +6,7 @@ import eluajs.project.AccessibilityChecker;
 import eluajs.project.LocalizationManager;
 import eluajs.project.ProjectCheckpoints;
 import eluajs.project.ProjectGradleManager;
+import eluajs.project.ProjectLayout;
 import eluajs.project.ProjectSearch;
 import eluajs.project.ProjectValidator;
 import eluajs.util.FileUtil;
@@ -42,7 +43,13 @@ final class ProjectToolsPanels {
             addHealthRow(rows, t("Android SDK"), ToolchainManager.sdkReady());
             addHealthRow(rows, t("Gradle"), ToolchainManager.gradleReady());
             addHealthRow(rows, t("Build Tools"), ToolchainManager.buildToolsReady());
+            Path module = ProjectLayout.moduleDir(root);
+            addHealthRow(rows, t("AndroidManifest"), Files.isRegularFile(module.resolve("src/main/AndroidManifest.xml")));
+            addHealthRow(rows, t("Gradle ayarları"), Files.isRegularFile(root.resolve("settings.gradle"))
+                    || Files.isRegularFile(root.resolve("settings.gradle.kts")));
             try {
+                var versions = ProjectGradleManager.read(root);
+                addHealthRow(rows, t("Application ID"), !versions.applicationId().isBlank() || !versions.namespace().isBlank());
                 ProjectValidator.Report report = ProjectValidator.validate(root);
                 addHealthRow(rows, t("Proje yapısı"), report.ok());
                 status.setText(report.ok() ? t("Temel kontroller geçti.") : t("%d sorun", report.problems().size()));

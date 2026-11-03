@@ -27,6 +27,9 @@ final class DeviceDialog extends JDialog {
     private final JTextField logFilter = Ui.field();
     private Path apk;
     private Process logcat;
+    private final java.util.List<String> logLines = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+    private volatile String filterText = "";
+    private volatile int filterLevel;
 
     DeviceDialog(Window owner, Path projectRoot, Path apk) {
         super(owner, t("Cihazlar ve Logcat"), ModalityType.APPLICATION_MODAL);
@@ -92,6 +95,15 @@ final class DeviceDialog extends JDialog {
         Ui.styleCombo(levelFilter);
         levelFilter.setPreferredSize(new Dimension(92, 30));
         logFilter.putClientProperty("JTextField.placeholderText", t("Loglarda ara"));
+        levelFilter.addActionListener(e -> {
+            filterLevel = levelFilter.getSelectedIndex();
+            rebuildLog();
+        });
+        logFilter.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { filterText = logFilter.getText(); rebuildLog(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { filterText = logFilter.getText(); rebuildLog(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { }
+        });
         filters.add(levelFilter, BorderLayout.WEST);
         filters.add(logFilter, BorderLayout.CENTER);
         JPanel north = new JPanel(new BorderLayout());
@@ -166,9 +178,9 @@ final class DeviceDialog extends JDialog {
 
     private boolean matchesLog(String line) {
         if (line == null) return false;
-        String needle = logFilter.getText() == null ? "" : logFilter.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        String needle = filterText == null ? "" : filterText.trim().toLowerCase(java.util.Locale.ROOT);
         if (!needle.isBlank() && !line.toLowerCase(java.util.Locale.ROOT).contains(needle)) return false;
-        int level = levelFilter.getSelectedIndex();
+        int level = filterLevel;
         if (level <= 0) return true;
         String letter = new String[]{"", "V", "D", "I", "W", "E"}[level];
         return line.matches(".*\\s" + letter + "/.*");
@@ -220,19 +232,13 @@ final class DeviceDialog extends JDialog {
                     .redirectErrorStream(true).start();
             start.setEnabled(false);
             stop.setEnabled(true);
+            logLines.clear();
             log.setText("");
             Thread reader = new Thread(() -> {
                 try (BufferedReader in = new BufferedReader(new InputStreamReader(logcat.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = in.readLine()) != null) {
-                        String value = line + "\n";
-                        if (matchesLog(value)) SwingUtilities.invokeLater(() -> {
-                            log.append(value);
-                            if (log.getDocument().getLength() > 1_000_000) {
-                                log.replaceRange("", 0, 200_000);
-                            }
-                            log.setCaretPosition(log.getDocument().getLength());
-                        });
+                        ingestLog(line + "\n");
                     }
                 } catch (Exception ignored) { }
                 SwingUtilities.invokeLater(() -> {
@@ -255,6 +261,27 @@ final class DeviceDialog extends JDialog {
         }
         start.setEnabled(true);
         stop.setEnabled(false);
+    }
+
+    private void ingestLog(String line) {
+        logLines.add(line);
+        while (logLines.size() > 5_000) logLines.remove(0);
+        if (matchesLog(line)) SwingUtilities.invokeLater(() -> {
+            log.append(line);
+            if (log.getDocument().getLength() > 1_000_000) log.replaceRange("", 0, 200_000);
+            log.setCaretPosition(log.getDocument().getLength());
+        });
+    }
+
+    private void rebuildLog() {
+        SwingUtilities.invokeLater(() -> {
+            StringBuilder b = new StringBuilder();
+            synchronized (logLines) {
+                for (String line : logLines) if (matchesLog(line)) b.append(line);
+            }
+            log.setText(b.toString());
+            log.setCaretPosition(log.getDocument().getLength());
+        });
     }
 
     private void append(String line) {

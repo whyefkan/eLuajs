@@ -1,6 +1,6 @@
 package eluajs.ui;
 
-import eluajs.util.AppPaths;
+import eluajs.update.UpdateConfig;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -51,8 +51,11 @@ final class WelcomeTourDialog extends JDialog {
         getRootPane().setDefaultButton(start);
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override public void windowClosed(java.awt.event.WindowEvent e) {
-                try { Files.createDirectories(AppPaths.config()); Files.writeString(AppPaths.config().resolve("onboarding.done"), "1"); }
-                catch (Exception ignored) { }
+                try {
+                    UpdateConfig config = UpdateConfig.load();
+                    config.setOnboardingSeen(true);
+                    config.save();
+                } catch (Exception ignored) { }
             }
         });
     }

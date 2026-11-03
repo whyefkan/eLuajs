@@ -83,6 +83,8 @@ public final class EditorFrame extends JFrame {
     private boolean focusMode;
     private final DefaultListModel<OutlineEntry> outlineModel = new DefaultListModel<>();
     private final JList<OutlineEntry> outlineList = new JList<>(outlineModel);
+    private String sidebarView = "files";
+    private final Timer outlineTimer = new Timer(350, e -> { if ("outline".equals(sidebarView)) refreshOutline(); });
     private final CardLayout bottomCards = new CardLayout();
     private final JPanel bottomContent = new JPanel(bottomCards);
     private final JPanel bottomTabs = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -411,6 +413,7 @@ public final class EditorFrame extends JFrame {
     }
 
     private void showSidebar(String view) {
+        sidebarView = view;
         sidebarCards.show(sidebarBody, view);
         boolean files = "files".equals(view);
         boolean pages = "pages".equals(view);
@@ -862,17 +865,12 @@ public final class EditorFrame extends JFrame {
         searchStatus.setText(t("Aranıyor..."));
         SwingWorker<List<ProjectSearch.Match>, Void> worker = new SwingWorker<>() {
             @Override protected List<ProjectSearch.Match> doInBackground() throws Exception {
-                return ProjectSearch.search(meta.rootDir(), query, searchCase.isSelected(), 500);
+                return ProjectSearch.search(meta.rootDir(), query, searchCase.isSelected(), 500, searchWord.isSelected());
             }
             @Override protected void done() {
                 searchButton.setEnabled(true);
                 try {
-                    List<ProjectSearch.Match> found = new java.util.ArrayList<>(get());
-                    if (searchWord.isSelected()) {
-                        java.util.regex.Pattern whole = java.util.regex.Pattern.compile(
-                                "(?i)\\b" + java.util.regex.Pattern.quote(query) + "\\b");
-                        found.removeIf(m -> !whole.matcher(m.preview()).find());
-                    }
+                    List<ProjectSearch.Match> found = get();
                     found.forEach(searchModel::addElement);
                     searchStatus.setText(t("%d sonuç", found.size())
                             + (found.size() >= 500 ? t(" (ilk 500)") : "")
@@ -910,7 +908,7 @@ public final class EditorFrame extends JFrame {
         searchStatus.setText(t("Değiştiriliyor..."));
         SwingWorker<ProjectSearch.ReplaceResult, Void> worker = new SwingWorker<>() {
             @Override protected ProjectSearch.ReplaceResult doInBackground() throws Exception {
-                return ProjectSearch.replaceAll(meta.rootDir(), query, replacement, searchCase.isSelected());
+                return ProjectSearch.replaceAll(meta.rootDir(), query, replacement, searchCase.isSelected(), searchWord.isSelected());
             }
             @Override protected void done() {
                 searchButton.setEnabled(true);
@@ -1047,8 +1045,8 @@ public final class EditorFrame extends JFrame {
     private EditorTab createTab(Path file, String text) {
         EditorTab tab = new EditorTab(file, text);
         tab.pane.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { markTabDirty(tab); }
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { markTabDirty(tab); }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { markTabDirty(tab); outlineTimer.restart(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { markTabDirty(tab); outlineTimer.restart(); }
             public void changedUpdate(javax.swing.event.DocumentEvent e) { }
         });
         tab.pane.addCaretListener(e -> {
@@ -2075,6 +2073,7 @@ public final class EditorFrame extends JFrame {
     }
 
     private void onExternalChange() {
+        if (aiPanel != null) aiPanel.invalidateContext();
         reloadTree();
         for (EditorTab tab : new ArrayList<>(openTabs.values())) {
             if (!Files.isRegularFile(tab.file)) {

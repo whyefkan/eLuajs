@@ -51,7 +51,7 @@ public final class SyntaxEditorPane extends JTextPane {
     private Object currentLineTag;
     private final javax.swing.text.Highlighter.HighlightPainter currentLinePainter =
             new javax.swing.text.DefaultHighlighter.DefaultHighlightPainter(
-                    new Color(55, 214, 164, 18));
+                    new Color(55, 214, 164, 22));
     private static final int HIGHLIGHT_DEBOUNCE_MS = 180;
     private static final int MAX_HIGHLIGHT_CHARS = 850_000;
 
@@ -522,7 +522,10 @@ public final class SyntaxEditorPane extends JTextPane {
             int line = root.getElementIndex(pos);
             javax.swing.text.Element el = root.getElement(line);
             if (el != null && el.getEndOffset() > el.getStartOffset()) {
-                currentLineTag = getHighlighter().addHighlight(el.getStartOffset(), el.getEndOffset(), currentLinePainter);
+                javax.swing.text.Highlighter.HighlightPainter painter =
+                        new javax.swing.text.DefaultHighlighter.DefaultHighlightPainter(
+                                new Color(Theme.ACCENT.getRed(), Theme.ACCENT.getGreen(), Theme.ACCENT.getBlue(), 22));
+                currentLineTag = getHighlighter().addHighlight(el.getStartOffset(), el.getEndOffset(), painter);
             }
         } catch (Exception ignored) { }
     }

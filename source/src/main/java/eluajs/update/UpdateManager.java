@@ -39,6 +39,11 @@ public final class UpdateManager {
     private static final AtomicBoolean STARTUP_RUNNING = new AtomicBoolean();
     private static volatile long lastCheckedAt;
     private static volatile String lastCheckError;
+    static {
+        UpdateConfig saved = UpdateConfig.load();
+        lastCheckedAt = saved.lastChecked();
+        lastCheckError = saved.lastError();
+    }
 
     private UpdateManager() {}
 
@@ -47,16 +52,26 @@ public final class UpdateManager {
             Release release = checkStable();
             lastCheckedAt = System.currentTimeMillis();
             lastCheckError = null;
+            persistStatus();
             return release;
         } catch (Exception ex) {
             lastCheckedAt = System.currentTimeMillis();
             lastCheckError = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            persistStatus();
             throw ex;
         }
     }
 
     public static long lastCheckedAt() { return lastCheckedAt; }
     public static String lastCheckError() { return lastCheckError; }
+
+    private static void persistStatus() {
+        try {
+            UpdateConfig cfg = UpdateConfig.load();
+            cfg.setLastCheck(lastCheckedAt, lastCheckError);
+            cfg.save();
+        } catch (Exception ignored) { }
+    }
 
     private static Release checkStable() throws Exception {
         String cleaned = OFFICIAL_REPO;
@@ -220,15 +235,17 @@ public final class UpdateManager {
 
     private static boolean jarHealthCheck(Path jar) {
         try {
-            Path java = Path.of(System.getProperty("java.home"), "bin",
+            Path javaExecutable = Path.of(System.getProperty("java.home"), "bin",
                     Platform.isWindows() ? "java.exe" : "java");
-            Process process = new ProcessBuilder(java.toString(), "-jar", jar.toString(), "--self-test")
+            Process process = new ProcessBuilder(javaExecutable.toString(), "-jar", jar.toString(), "--version")
                     .redirectErrorStream(true).start();
-            if (!process.waitFor(45, TimeUnit.SECONDS)) {
+            if (!process.waitFor(15, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 return false;
             }
-            return process.exitValue() == 0;
+            if (process.exitValue() != 0) return false;
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            return output.contains("eLuajs");
         } catch (Exception ex) {
             return false;
         }

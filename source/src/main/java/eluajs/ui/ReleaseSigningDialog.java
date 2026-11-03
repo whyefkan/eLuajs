@@ -122,10 +122,12 @@ public final class ReleaseSigningDialog extends JDialog {
         helpers.setOpaque(false);
         JButton create = Ui.button("＋ " + t("Yeni Keystore Oluştur"), false);
         create.addActionListener(e -> createKeystore());
+        JButton vault = Ui.button(t("Signing Vault"), false);
+        vault.addActionListener(e -> new SigningVaultDialog(this).setVisible(true));
         JButton settings = Ui.button("</> " + t("signing.properties Aç"), false);
         settings.setToolTipText(t("İsterseniz aynı bilgileri proje içindeki ayar dosyasına elle yazabilirsiniz."));
         settings.addActionListener(e -> openSettings());
-        helpers.add(create); helpers.add(settings);
+        helpers.add(create); helpers.add(vault); helpers.add(settings);
         form.add(helpers, c);
 
         c.gridy++; c.insets = new Insets(8, 0, 0, 0);

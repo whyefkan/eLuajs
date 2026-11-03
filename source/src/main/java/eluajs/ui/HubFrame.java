@@ -4,7 +4,7 @@ import eluajs.android.ToolchainManager;
 import eluajs.model.ProjectMeta;
 import eluajs.project.ProjectStore;
 import eluajs.project.ProjectFavorites;
-import eluajs.util.AppPaths;
+import eluajs.update.UpdateConfig;
 import eluajs.update.UpdateManager;
 
 import static eluajs.util.I18n.t;
@@ -82,7 +82,7 @@ public final class HubFrame extends JFrame {
                 }));
         startupUpdate.setRepeats(false);
         startupUpdate.start();
-        if (!Files.exists(AppPaths.config().resolve("onboarding.done"))) {
+        if (!UpdateConfig.load().onboardingSeen() && !Files.exists(eluajs.util.AppPaths.config().resolve("onboarding.done"))) {
             Timer tour = new Timer(700, e -> new WelcomeTourDialog(this).setVisible(true));
             tour.setRepeats(false);
             tour.start();
@@ -579,6 +579,7 @@ public final class HubFrame extends JFrame {
             selected = stillThere;
             int index = sidebarModel.indexOf(stillThere);
             sidebarList.setSelectedIndex(index);
+            sidebarList.ensureIndexIsVisible(index);
             showDetail(stillThere);
         } else {
             selected = null;

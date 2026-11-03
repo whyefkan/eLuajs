@@ -67,22 +67,22 @@ All links below always point to the **latest release**.
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v158.png) | ![Editor](docs/editor-v158.png) |
+| ![Hub](docs/hub-v160.png) | ![Editor](docs/editor-v160.png) |
 
 <p align="center">
-  <img src="docs/ai-v158.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v160.png" alt="eLuajs AI assistant">
 </p>
 
 <p align="center">
-  <img src="docs/tools-v158.png" alt="eLuajs project tools">
+  <img src="docs/tools-v160.png" alt="eLuajs project tools">
 </p>
 
 <p align="center">
-  <img src="docs/build-v158.png" alt="eLuajs build output window">
+  <img src="docs/build-v160.png" alt="eLuajs build output window">
 </p>
 
 <p align="center">
-  <img src="docs/output-v158.png" alt="eLuajs output chooser">
+  <img src="docs/output-v160.png" alt="eLuajs output chooser">
 </p>
 
 ## Features
@@ -132,7 +132,8 @@ Open the docked panel with the activity bar icon or `Ctrl+Alt+A`.
 - `1.5.5` was the reliability pack: autosave/session restore, project watcher, build cancel/clean/offline/retry, quick open, command palette, line operations, ADB logcat, AI stop/retry/audit and project rules.
 - `1.5.6` added the redesigned project tools hub with inline settings, checkpoints, accessibility, notes, references, translations, assets, Gradle libraries, permissions, APK diff, release notes and focus mode, plus English/Turkish UI fixes.
 - `1.5.7` was the AI workspace update: compact project index, token budgeting, read ranges/search, patch edits, page scaffolding, linked-file context, validation repair, provider retries/prompt caching, and AI checkpoints.
-- `1.5.8` is the final 1.5-series polish pack: reliable startup update checks, update badges/last-check status, cancellable updates with health rollback, AI cancellation/error/context panels, cached indexes, patch conflict recovery, page-creation UX, secret redaction, sensitive-file confirmation and diagnostics copy. It also adds accent themes, toasts, fuzzy command palette, outline panel, clickable breadcrumb, tab/file shortcuts, problem/search filters, onboarding, AI prompt history/pinned context/slash commands, project health, template cards, pinned projects and logcat filters.
+- `1.5.8` was the final 1.5-series polish pack with the project tools and workspace upgrades.
+- `1.6.0` is the first stable 1.6 release: reliable startup update checks, update badges/last-check status, cancellable updates with health rollback, AI cancellation/error/context panels, cached indexes, patch conflict recovery, page-creation UX, secret redaction, sensitive-file confirmation and diagnostics copy. It also adds accent themes, toasts, fuzzy command palette, outline panel, clickable breadcrumb, tab/file shortcuts, problem/search filters, onboarding, AI prompt history/pinned context/slash commands, project health, template cards, pinned projects, logcat filters and a Signing Vault.
 - Small fixes keep the same minor line: `1.5.2`, `1.5.3`, and so on.
 - The minor version (`1.5` → `1.6`) changes only for another large feature set.
 - There is no beta channel; every published GitHub release is stable.

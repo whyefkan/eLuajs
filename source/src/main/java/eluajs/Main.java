@@ -36,6 +36,10 @@ public final class Main {
     public static void main(String[] args) {
         System.setProperty("sun.java2d.uiScale.enabled", "true");
         eluajs.util.CrashReporter.install();
+        if (args.length > 0 && "--version".equals(args[0])) {
+            System.out.println("eLuajs " + eluajs.util.AppInfo.version());
+            return;
+        }
         if (args.length > 0 && "--self-test".equals(args[0])) {
             selfTest();
             return;

@@ -29,6 +29,10 @@ public final class ProjectSearch {
     public record ReplaceResult(int files, int replacements, List<String> errors, Set<Path> changed) { }
 
     public static List<Match> search(Path projectRoot, String query, boolean caseSensitive, int maxResults) throws IOException {
+        return search(projectRoot, query, caseSensitive, maxResults, false);
+    }
+
+    public static List<Match> search(Path projectRoot, String query, boolean caseSensitive, int maxResults, boolean wholeWord) throws IOException {
         String needle = query == null ? "" : query.trim();
         if (needle.isEmpty()) return List.of();
         int limit = Math.max(1, maxResults);
@@ -39,7 +43,7 @@ public final class ProjectSearch {
             var it = walk.filter(Files::isRegularFile).filter(ProjectSearch::searchable).iterator();
             while (it.hasNext() && out.size() < limit) {
                 Path file = it.next();
-                scanFile(file, cmpNeedle, caseSensitive, limit, out);
+                scanFile(file, cmpNeedle, caseSensitive, limit, out, wholeWord);
             }
         }
         return List.copyOf(out);
@@ -47,11 +51,16 @@ public final class ProjectSearch {
 
     public static ReplaceResult replaceAll(Path projectRoot, String query, String replacement, boolean caseSensitive)
             throws IOException {
+        return replaceAll(projectRoot, query, replacement, caseSensitive, false);
+    }
+
+    public static ReplaceResult replaceAll(Path projectRoot, String query, String replacement, boolean caseSensitive, boolean wholeWord)
+            throws IOException {
         String needle = query == null ? "" : query;
         if (needle.isEmpty()) throw new IllegalArgumentException("Aranacak metin boş olamaz.");
         String replacementText = replacement == null ? "" : replacement;
         int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
-        Pattern pattern = Pattern.compile(Pattern.quote(needle), flags);
+        Pattern pattern = Pattern.compile(wholeWord ? "\\b" + Pattern.quote(needle) + "\\b" : Pattern.quote(needle), flags);
         String quotedReplacement = Matcher.quoteReplacement(replacementText);
         int files = 0;
         int replacements = 0;
@@ -83,14 +92,17 @@ public final class ProjectSearch {
         return new ReplaceResult(files, replacements, List.copyOf(errors), Set.copyOf(changed));
     }
 
-    private static void scanFile(Path file, String cmpNeedle, boolean caseSensitive, int limit, List<Match> out) {
+    private static void scanFile(Path file, String cmpNeedle, boolean caseSensitive, int limit, List<Match> out, boolean wholeWord) {
         try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             String line;
             int lineNo = 0;
             while ((line = reader.readLine()) != null && out.size() < limit) {
                 lineNo++;
                 String cmpLine = caseSensitive ? line : line.toLowerCase(Locale.ROOT);
-                if (cmpLine.contains(cmpNeedle)) out.add(new Match(file, lineNo, compact(line)));
+                if (wholeWord) {
+                    String pattern = (caseSensitive ? "" : "(?i)") + "\\b" + Pattern.quote(cmpNeedle) + "\\b";
+                    if (Pattern.compile(pattern).matcher(line).find()) out.add(new Match(file, lineNo, compact(line)));
+                } else if (cmpLine.contains(cmpNeedle)) out.add(new Match(file, lineNo, compact(line)));
             }
         } catch (Exception ignored) { }
     }

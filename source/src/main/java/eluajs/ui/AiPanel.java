@@ -143,6 +143,7 @@ public final class AiPanel extends JPanel {
     private final JButton stop = Ui.button(t("Durdur"), false);
     private final JButton retry = Ui.button(t("Tekrar Dene"), false);
     private final JButton undoEdits = iconOnly("undo", t("Undo AI edits"));
+    private JButton pinButton;
     private long sessionPrompt;
     private long sessionCompletion;
     private long sessionTotal;
@@ -197,14 +198,21 @@ public final class AiPanel extends JPanel {
     private void pinCurrent(JButton button) {
         Path file = currentFile == null ? null : currentFile.get();
         if (file == null) return;
-        if (pinned.remove(file)) {
-            button.setForeground(Theme.MUTED);
-            addSystemNote(t("Unpinned: %s", file.getFileName()));
-        } else if (pinned.size() < 6) {
+        if (pinned.remove(file)) addSystemNote(t("Unpinned: %s", file.getFileName()));
+        else if (pinned.size() < 6) {
             pinned.add(file);
-            button.setForeground(Theme.ACCENT);
             addSystemNote(t("Pinned: %s", file.getFileName()));
         }
+        refreshPinState();
+    }
+
+    public void refreshPinState() {
+        if (pinButton == null) return;
+        Path file = currentFile == null ? null : currentFile.get();
+        boolean on = file != null && pinned.contains(file);
+        pinButton.setForeground(on ? Theme.ACCENT : Theme.MUTED);
+        pinButton.setText(on ? t("Pinned") : t("Pin"));
+        pinButton.setToolTipText(on ? t("Bu dosyayı sabit context'ten çıkar") : t("Sabit context: geçerli dosyayı AI'ya ekle"));
     }
 
     private JComponent header() {
@@ -226,12 +234,12 @@ public final class AiPanel extends JPanel {
         undoEdits.addActionListener(e -> undoAiEdits());
         JButton history = iconOnly("history", t("Chat history"));
         history.addActionListener(e -> showHistory(history));
-        JButton pin = Ui.button(t("Pin"), false);
-        pin.setFont(Theme.font(9, Font.BOLD));
-        pin.setBorder(new EmptyBorder(4, 6, 4, 6));
-        pin.setToolTipText(t("Sabit context: geçerli dosyayı AI'ya ekle"));
-        pin.addActionListener(e -> pinCurrent(pin));
-        tools.add(pin);
+        pinButton = Ui.button(t("Pin"), false);
+        pinButton.setFont(Theme.font(9, Font.BOLD));
+        pinButton.setBorder(new EmptyBorder(4, 6, 4, 6));
+        pinButton.setToolTipText(t("Sabit context: geçerli dosyayı AI'ya ekle"));
+        pinButton.addActionListener(e -> pinCurrent(pinButton));
+        tools.add(pinButton);
         JButton clear = iconOnly("plus", t("New chat"));
         clear.addActionListener(e -> newChat());
         JButton close = iconOnly("close", t("Close"));
@@ -362,10 +370,9 @@ public final class AiPanel extends JPanel {
     private void stopRequest() {
         AiClient.cancelActive();
         if (activeWorker != null) activeWorker.cancel(true);
-        busy = false;
+        stop.setEnabled(false);
         working.stop();
-        stop.setVisible(false);
-        status.setText(t("Durduruldu"));
+        status.setText(t("Durduruluyor..."));
         status.setForeground(Theme.MUTED);
         updateSendState();
     }
@@ -660,6 +667,7 @@ public final class AiPanel extends JPanel {
         lastPrompt = text;
         failedPrompt = null;
         retry.setEnabled(false);
+        stop.setEnabled(true);
         stop.setVisible(true);
         addBubble(true, text, false);
         history.add(AiMessage.user(text));
@@ -813,12 +821,16 @@ public final class AiPanel extends JPanel {
                 StringBuilder summary = new StringBuilder();
                 List<String> errors = new ArrayList<>();
                 boolean createdAny = false;
-                try { lastCheckpoint = ProjectCheckpoints.create(projectRoot, "ai-before-page"); }
-                catch (Exception ignored) { }
+                boolean checkpointTaken = false;
                 for (PageRequest page : pages) {
                     if (!confirmPage(page)) {
                         summary.append(t("Page creation cancelled.")).append('\n');
                         continue;
+                    }
+                    if (!checkpointTaken) {
+                        checkpointTaken = true;
+                        try { lastCheckpoint = ProjectCheckpoints.create(projectRoot, "ai-before-page"); }
+                        catch (Exception ignored) { }
                     }
                     try {
                         ProjectPageScaffold.Result created = ProjectPageScaffold.create(projectRoot, page.name(), page.title());
@@ -1304,6 +1316,8 @@ public final class AiPanel extends JPanel {
     }
 
     private void invalidateIndex() { cachedIndex = null; }
+
+    public void invalidateContext() { invalidateIndex(); }
 
     private String buildSystemPrompt(boolean projectAccess) {
         StringBuilder b = new StringBuilder(SYSTEM_PROMPT);
