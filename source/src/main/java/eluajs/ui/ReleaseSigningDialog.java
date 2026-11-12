@@ -170,8 +170,10 @@ public final class ReleaseSigningDialog extends JDialog {
         fc.setDialogTitle(t("Upload keystore seç"));
         String current = storeFile.getText().trim();
         if (!current.isEmpty()) {
-            Path p = Path.of(current).toAbsolutePath();
-            if (p.getParent() != null && Files.isDirectory(p.getParent())) fc.setCurrentDirectory(p.getParent().toFile());
+            try {
+                Path p = Path.of(current).toAbsolutePath();
+                if (p.getParent() != null && Files.isDirectory(p.getParent())) fc.setCurrentDirectory(p.getParent().toFile());
+            } catch (Exception ignored) { }
         }
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) storeFile.setText(fc.getSelectedFile().toPath().toAbsolutePath().toString());
     }

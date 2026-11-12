@@ -47,7 +47,13 @@ public final class FileUtil {
         if (log != null) log.accept("İndiriliyor: " + url);
         HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(20))
                 .header("User-Agent", "eLuajs/1.5").build();
-        HttpResponse<Path> response = HTTP.send(request, HttpResponse.BodyHandlers.ofFile(partial));
+        HttpResponse<Path> response;
+        try {
+            response = HTTP.send(request, HttpResponse.BodyHandlers.ofFile(partial));
+        } catch (Exception ex) {
+            Files.deleteIfExists(partial);
+            throw ex;
+        }
         if (response.statusCode() / 100 != 2) {
             Files.deleteIfExists(partial);
             throw new IOException("İndirme başarısız. HTTP " + response.statusCode());
@@ -148,13 +154,16 @@ public final class FileUtil {
     public static void writeStringAtomic(Path target, String content) throws IOException {
         Path parent = target.toAbsolutePath().normalize().getParent();
         if (parent != null) Files.createDirectories(parent);
-        Path tmp = target.resolveSibling(target.getFileName() + ".eluajs.tmp");
-        Files.writeString(tmp, content, java.nio.charset.StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        Path tmp = Files.createTempFile(parent, ".eluajs-", ".tmp");
         try {
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException ex) {
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(tmp, content, java.nio.charset.StandardCharsets.UTF_8,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+            secureFile(tmp);
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         } finally {
             Files.deleteIfExists(tmp);
         }

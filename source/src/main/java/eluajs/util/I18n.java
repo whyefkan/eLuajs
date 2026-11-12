@@ -4194,4 +4194,20 @@ public final class I18n {
         en("Application ID", "Application ID");
     }
 
+    static {
+        en("%d seçili", "%d selected");
+        en("Copy last answer", "Copy last answer");
+        en("Copied.", "Copied.");
+    }
+
+    static {
+        tr("Copy last answer", "Son yanıtı kopyala");
+        tr("Copied.", "Kopyalandı.");
+    }
+
+    static {
+        en("Keystore kontrolü zaman aşımına uğradı.", "Keystore check timed out.");
+        tr("Keystore kontrolü zaman aşımına uğradı.", "Keystore kontrolü zaman aşımına uğradı.");
+    }
+
 }

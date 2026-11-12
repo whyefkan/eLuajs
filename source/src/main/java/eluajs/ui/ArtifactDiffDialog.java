@@ -76,9 +76,10 @@ final class ArtifactDiffDialog extends JDialog {
     }
 
     private void compare() {
-        if (!Files.isRegularFile(Path.of(first.getText().trim())) || !Files.isRegularFile(Path.of(second.getText().trim()))) return;
         try {
-            Path a = Path.of(first.getText().trim()), b = Path.of(second.getText().trim());
+            Path a = first.getText().isBlank() ? null : Path.of(first.getText().trim());
+            Path b = second.getText().isBlank() ? null : Path.of(second.getText().trim());
+            if (a == null || b == null || !Files.isRegularFile(a) || !Files.isRegularFile(b)) return;
             Map<String, Long> ea = entries(a), eb = entries(b);
             StringBuilder out = new StringBuilder();
             out.append("A: ").append(a.getFileName()).append("  (").append(Files.size(a)).append(" bytes)\n");

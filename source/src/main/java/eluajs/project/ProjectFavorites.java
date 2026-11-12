@@ -1,6 +1,7 @@
 package eluajs.project;
 
 import eluajs.util.AppPaths;
+import eluajs.util.FileUtil;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +38,7 @@ public final class ProjectFavorites {
             Files.createDirectories(file().getParent());
             StringBuilder text = new StringBuilder();
             for (Path p : roots) text.append(p).append('\n');
-            Files.writeString(file(), text.toString(), StandardCharsets.UTF_8);
+            FileUtil.writeStringAtomic(file(), text.toString());
         } catch (IOException ignored) { }
         return added;
     }

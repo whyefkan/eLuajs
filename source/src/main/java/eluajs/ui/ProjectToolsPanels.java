@@ -481,20 +481,24 @@ final class ProjectToolsPanels {
     }
 
     private static void compare(JPanel owner, JTextField first, JTextField second, JTextArea output) {
-        Path a = first.getText().isBlank() ? null : Path.of(first.getText().trim());
-        Path b = second.getText().isBlank() ? null : Path.of(second.getText().trim());
+        Path a = null, b = null;
+        try {
+            a = first.getText().isBlank() ? null : Path.of(first.getText().trim());
+            b = second.getText().isBlank() ? null : Path.of(second.getText().trim());
+        } catch (Exception ignored) { }
         if (a == null || b == null || !Files.isRegularFile(a) || !Files.isRegularFile(b)) {
             output.setText(t("İki APK/AAB dosyası seçin."));
             return;
         }
         output.setText(t("Karşılaştırılıyor..."));
+        final Path finalA = a, finalB = b;
         new SwingWorker<String, Void>() {
             @Override protected String doInBackground() throws Exception {
-                Map<String, Long> ea = entries(a), eb = entries(b);
+                Map<String, Long> ea = entries(finalA), eb = entries(finalB);
                 StringBuilder out = new StringBuilder();
-                out.append("A: ").append(a.getFileName()).append("  (").append(Files.size(a)).append(" bytes)\n");
-                out.append("B: ").append(b.getFileName()).append("  (").append(Files.size(b)).append(" bytes)\n");
-                out.append(t("Boyut farkı: ")).append(Files.size(b) - Files.size(a)).append(" bytes\n\n");
+                out.append("A: ").append(finalA.getFileName()).append("  (").append(Files.size(finalA)).append(" bytes)\n");
+                out.append("B: ").append(finalB.getFileName()).append("  (").append(Files.size(finalB)).append(" bytes)\n");
+                out.append(t("Boyut farkı: ")).append(Files.size(finalB) - Files.size(finalA)).append(" bytes\n\n");
                 Set<String> all = new TreeSet<>(ea.keySet()); all.addAll(eb.keySet());
                 for (String name : all) {
                     Long av = ea.get(name), bv = eb.get(name);

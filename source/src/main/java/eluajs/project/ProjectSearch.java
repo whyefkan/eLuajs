@@ -93,15 +93,17 @@ public final class ProjectSearch {
     }
 
     private static void scanFile(Path file, String cmpNeedle, boolean caseSensitive, int limit, List<Match> out, boolean wholeWord) {
+        Pattern whole = wholeWord
+                ? Pattern.compile((caseSensitive ? "" : "(?i)") + "\\b" + Pattern.quote(cmpNeedle) + "\\b")
+                : null;
         try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             String line;
             int lineNo = 0;
             while ((line = reader.readLine()) != null && out.size() < limit) {
                 lineNo++;
                 String cmpLine = caseSensitive ? line : line.toLowerCase(Locale.ROOT);
-                if (wholeWord) {
-                    String pattern = (caseSensitive ? "" : "(?i)") + "\\b" + Pattern.quote(cmpNeedle) + "\\b";
-                    if (Pattern.compile(pattern).matcher(line).find()) out.add(new Match(file, lineNo, compact(line)));
+                if (whole != null) {
+                    if (whole.matcher(line).find()) out.add(new Match(file, lineNo, compact(line)));
                 } else if (cmpLine.contains(cmpNeedle)) out.add(new Match(file, lineNo, compact(line)));
             }
         } catch (Exception ignored) { }

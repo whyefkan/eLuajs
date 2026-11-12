@@ -123,8 +123,10 @@ public final class ImportProjectDialog extends JDialog {
         fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         fc.setAcceptAllFileFilterUsed(false);
         if (!folder.getText().isBlank()) {
-            Path current = Path.of(folder.getText());
-            if (Files.isDirectory(current)) fc.setCurrentDirectory(current.toFile());
+            try {
+                Path current = Path.of(folder.getText());
+                if (Files.isDirectory(current)) fc.setCurrentDirectory(current.toFile());
+            } catch (Exception ignored) { }
         }
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             folder.setText(fc.getSelectedFile().getAbsolutePath());

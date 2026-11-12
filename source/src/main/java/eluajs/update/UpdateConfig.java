@@ -1,6 +1,7 @@
 package eluajs.update;
 
 import eluajs.util.AppPaths;
+import eluajs.util.FileUtil;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -53,10 +54,9 @@ public final class UpdateConfig {
 
     public void save() {
         try {
-            Files.createDirectories(FILE.getParent());
-            try (OutputStream out = Files.newOutputStream(FILE)) {
-                props.store(out, "eLuajs update settings");
-            }
+            java.io.StringWriter writer = new java.io.StringWriter();
+            props.store(writer, "eLuajs update settings");
+            FileUtil.writeStringAtomic(FILE, writer.toString());
         } catch (Exception ignored) { }
     }
 }

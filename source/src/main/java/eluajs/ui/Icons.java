@@ -117,6 +117,10 @@ public final class Icons {
                 p.lineTo(s * .62f, s * .39f);
                 g2.draw(p);
             }
+            case "copy" -> {
+                g2.draw(new RoundRectangle2D.Float(s * .24f, s * .28f, s * .42f, s * .50f, s * .06f, s * .06f));
+                g2.draw(new RoundRectangle2D.Float(s * .38f, s * .16f, s * .36f, s * .42f, s * .06f, s * .06f));
+            }
             case "settings" -> {
                 g2.draw(new Ellipse2D.Float(s * .32f, s * .32f, s * .36f, s * .36f));
                 for (int i = 0; i < 8; i++) {

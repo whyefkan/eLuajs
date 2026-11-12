@@ -20,7 +20,9 @@ public final class CrashReporter {
         return AppPaths.config().resolve("crash.log");
     }
 
-    public static void record(Thread thread, Throwable error) {
+    private static final long MAX_LOG_BYTES = 1_000_000L;
+
+    public static synchronized void record(Thread thread, Throwable error) {
         StringWriter buffer = new StringWriter();
         try (PrintWriter writer = new PrintWriter(buffer)) {
             writer.println("===== " + Instant.now() + " =====");
@@ -33,6 +35,11 @@ public final class CrashReporter {
             Path file = logFile();
             Files.createDirectories(file.getParent());
             FileUtil.secureDir(file.getParent());
+            try {
+                if (Files.isRegularFile(file) && Files.size(file) > MAX_LOG_BYTES) {
+                    Files.move(file, file.resolveSibling("crash.log.1"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (Exception ignored) { }
             Files.writeString(file, buffer.toString(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             FileUtil.secureFile(file);

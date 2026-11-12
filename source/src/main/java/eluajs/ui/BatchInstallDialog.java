@@ -81,14 +81,17 @@ final class BatchInstallDialog extends JDialog {
     }
 
     private void install() {
-        Path file = apk.getText().isBlank() ? null : Path.of(apk.getText().trim());
+        Path file;
+        try { file = apk.getText().isBlank() ? null : Path.of(apk.getText().trim()); }
+        catch (Exception ex) { file = null; }
         if (file == null || !Files.isRegularFile(file)) { log.append(t("APK seçin.") + "\n"); return; }
         List<String> selected = devices.getSelectedValuesList();
         if (selected.isEmpty()) { log.append(t("Cihaz seçin.") + "\n"); return; }
+        final Path finalFile = file;
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
             @Override protected Void doInBackground() {
                 for (String serial : selected) {
-                    try { ToolchainManager.installApk(serial, file, line -> SwingUtilities.invokeLater(() -> log.append(line + "\n"))); }
+                    try { ToolchainManager.installApk(serial, finalFile, line -> SwingUtilities.invokeLater(() -> log.append(line + "\n"))); }
                     catch (Exception ex) { SwingUtilities.invokeLater(() -> log.append(serial + ": " + ex.getMessage() + "\n")); }
                 }
                 return null;

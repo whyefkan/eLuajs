@@ -143,6 +143,8 @@ public final class AiPanel extends JPanel {
     private final JButton stop = Ui.button(t("Durdur"), false);
     private final JButton retry = Ui.button(t("Tekrar Dene"), false);
     private final JButton undoEdits = iconOnly("undo", t("Undo AI edits"));
+    private final JButton copyAnswer = iconOnly("copy", t("Copy last answer"));
+    private String lastAnswerText = "";
     private JButton pinButton;
     private long sessionPrompt;
     private long sessionCompletion;
@@ -245,6 +247,9 @@ public final class AiPanel extends JPanel {
         JButton close = iconOnly("close", t("Close"));
         close.addActionListener(e -> { if (onClose != null) onClose.run(); });
         tools.add(history);
+        copyAnswer.setEnabled(false);
+        copyAnswer.addActionListener(e -> copyLastAnswer());
+        tools.add(copyAnswer);
         tools.add(undoEdits);
         tools.add(clear);
         tools.add(close);
@@ -519,6 +524,8 @@ public final class AiPanel extends JPanel {
         lastPrompt = "";
         lastUndo = new LinkedHashMap<>();
         lastCheckpoint = null;
+        lastAnswerText = "";
+        copyAnswer.setEnabled(false);
         undoEdits.setEnabled(false);
         working.stop();
         sessionPrompt = 0;
@@ -553,9 +560,11 @@ public final class AiPanel extends JPanel {
             addBubble(user, message.content(), false);
             history.add(message);
             if (user) lastPrompt = message.content();
+            else lastAnswerText = message.content();
         }
         lastUndo = new LinkedHashMap<>();
         lastCheckpoint = null;
+        copyAnswer.setEnabled(!lastAnswerText.isBlank());
         undoEdits.setEnabled(false);
         sessionPrompt = 0;
         sessionCompletion = 0;
@@ -739,6 +748,8 @@ public final class AiPanel extends JPanel {
                 }
                 try {
                     LoopResult result = get();
+                    lastAnswerText = result.text();
+                    copyAnswer.setEnabled(!lastAnswerText.isBlank());
                     addBubble(false, result.text(), false);
                     history.add(AiMessage.assistant(result.text()));
                     while (history.size() > MAX_HISTORY_MESSAGES) history.remove(0);
@@ -1248,6 +1259,13 @@ public final class AiPanel extends JPanel {
 
     private String rel(Path path) {
         return projectRoot.toAbsolutePath().normalize().relativize(path.toAbsolutePath().normalize()).toString();
+    }
+
+    private void copyLastAnswer() {
+        if (lastAnswerText.isBlank()) return;
+        Toolkit.getDefaultToolkit().getSystemClipboard()
+                .setContents(new java.awt.datatransfer.StringSelection(lastAnswerText), null);
+        Ui.toast(SwingUtilities.getWindowAncestor(this), t("Copied."));
     }
 
     private void undoAiEdits() {

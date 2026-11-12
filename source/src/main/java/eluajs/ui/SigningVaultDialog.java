@@ -15,6 +15,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static eluajs.util.I18n.t;
 
@@ -158,7 +159,10 @@ final class SigningVaultDialog extends JDialog {
                     String line;
                     while ((line = reader.readLine()) != null) text.append(line).append('\n');
                 }
-                process.waitFor();
+                if (!process.waitFor(20, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    throw new IllegalStateException(t("Keystore kontrolü zaman aşımına uğradı."));
+                }
                 return text.toString();
             }
             @Override protected void done() {

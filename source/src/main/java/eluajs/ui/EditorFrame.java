@@ -154,6 +154,7 @@ public final class EditorFrame extends JFrame {
                 saveSession();
                 autosaveTimer.stop();
                 sessionTimer.stop();
+                outlineTimer.stop();
                 if (watcher != null) watcher.close();
                 if (onCloseRefresh != null) onCloseRefresh.run();
             }
@@ -2112,6 +2113,7 @@ public final class EditorFrame extends JFrame {
         }
         try {
             String text = Files.readString(file, StandardCharsets.UTF_8);
+            QuickOpenDialog.remember(file);
             EditorTab tab = createTab(file, text);
             openTabs.put(file, tab);
             tabsUpdating = true;
@@ -2232,7 +2234,10 @@ public final class EditorFrame extends JFrame {
             int line = root.getElementIndex(caret);
             Element el = root.getElement(line);
             int col = caret - (el == null ? 0 : el.getStartOffset());
-            editorStatus.setText(t("Satır %d, Sütun %d", line + 1, col + 1) + (dirty ? "  •  " + t("Değiştirildi") : "  •  " + t("Kaydedildi")));
+            int selection = Math.abs(editor.getSelectionEnd() - editor.getSelectionStart());
+            String selected = selection > 0 ? "  •  " + t("%d seçili", selection) : "";
+            editorStatus.setText(t("Satır %d, Sütun %d", line + 1, col + 1) + selected
+                    + (dirty ? "  •  " + t("Değiştirildi") : "  •  " + t("Kaydedildi")));
             editorStatus.setForeground(Theme.STATUS_TEXT);
             tabDot.setText(dirty ? "●" : "");
         } catch (Exception ignored) { }

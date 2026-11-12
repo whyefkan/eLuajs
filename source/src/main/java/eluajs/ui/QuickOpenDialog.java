@@ -26,6 +26,15 @@ final class QuickOpenDialog extends JDialog {
     private final DefaultListModel<Path> model = new DefaultListModel<>();
     private final JList<Path> list = new JList<>(model);
     private List<Path> all = List.of();
+    private static final java.util.LinkedHashSet<Path> RECENT = new java.util.LinkedHashSet<>();
+
+    static void remember(Path path) {
+        if (path == null) return;
+        Path normalized = path.toAbsolutePath().normalize();
+        RECENT.remove(normalized);
+        RECENT.add(normalized);
+        while (RECENT.size() > 20) RECENT.remove(RECENT.iterator().next());
+    }
 
     QuickOpenDialog(Frame owner, Path root, Consumer<Path> opener) {
         super(owner, t("Hızlı Dosya Aç"), ModalityType.APPLICATION_MODAL);
@@ -107,19 +116,36 @@ final class QuickOpenDialog extends JDialog {
         String q = query.getText().trim().toLowerCase(Locale.ROOT);
         model.clear();
         int count = 0;
+        List<Path> matches = new ArrayList<>();
         for (Path path : all) {
             String rel = root.relativize(path).toString().replace('\\', '/');
-            if (q.isEmpty() || rel.toLowerCase(Locale.ROOT).contains(q)) {
-                model.addElement(path);
-                if (++count >= 300) break;
-            }
+            if (q.isEmpty() || rel.toLowerCase(Locale.ROOT).contains(q)) matches.add(path);
+        }
+        matches.sort((a, b) -> {
+            int ai = recentIndex(a), bi = recentIndex(b);
+            if (ai >= 0 || bi >= 0) return ai < 0 ? 1 : bi < 0 ? -1 : Integer.compare(bi, ai);
+            return 0;
+        });
+        for (Path path : matches) {
+            model.addElement(path);
+            if (++count >= 300) break;
         }
         if (!model.isEmpty()) list.setSelectedIndex(0);
+    }
+
+    private static int recentIndex(Path path) {
+        int i = 0;
+        for (Path recent : RECENT) {
+            if (recent.equals(path.toAbsolutePath().normalize())) return i;
+            i++;
+        }
+        return -1;
     }
 
     private void choose() {
         Path path = list.getSelectedValue();
         if (path == null) return;
+        remember(path);
         dispose();
         if (opener != null) opener.accept(path);
     }
