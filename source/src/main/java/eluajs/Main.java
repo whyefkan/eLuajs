@@ -52,6 +52,7 @@ public final class Main {
         I18n.load();
         Theme.load();
         Theme.install();
+        eluajs.ai.AiModelSync.refreshOnStartup();
         SwingUtilities.invokeLater(() -> new HubFrame().setVisible(true));
     }
 

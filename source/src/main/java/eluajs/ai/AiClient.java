@@ -57,14 +57,20 @@ public final class AiClient {
 
     private static <T> HttpResponse<T> sendWithRetry(HttpRequest request, HttpResponse.BodyHandler<T> handler,
                                                      boolean honorCancel) throws Exception {
+        return sendWithRetry(request, handler, honorCancel, MAX_ATTEMPTS);
+    }
+
+    private static <T> HttpResponse<T> sendWithRetry(HttpRequest request, HttpResponse.BodyHandler<T> handler,
+                                                     boolean honorCancel, int maxAttempts) throws Exception {
         Exception last = null;
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        int attempts = Math.max(1, maxAttempts);
+        for (int attempt = 1; attempt <= attempts; attempt++) {
             if (honorCancel) checkCancelled();
             else if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Request interrupted");
             try {
                 HttpResponse<T> response = HTTP.send(request, handler);
                 int status = response.statusCode();
-                if ((status != 429 && status < 500) || attempt == MAX_ATTEMPTS) return response;
+                if ((status != 429 && status < 500) || attempt == attempts) return response;
                 if (response.body() instanceof AutoCloseable closeable) {
                     try { closeable.close(); } catch (Exception ignored) { }
                 }
@@ -72,7 +78,7 @@ public final class AiClient {
             } catch (java.io.IOException ex) {
                 last = ex;
             }
-            if (attempt < MAX_ATTEMPTS) {
+            if (attempt < attempts) {
                 try { Thread.sleep(600L * attempt * attempt); }
                 catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw ie; }
             }
@@ -257,6 +263,15 @@ public final class AiClient {
     }
 
     public static List<String> listModels(AiConfig cfg) throws Exception {
+        return listModels(cfg, Duration.ofSeconds(30), MAX_ATTEMPTS);
+    }
+
+    /** Fast, single-attempt model list fetch used by silent startup sync. */
+    public static List<String> listModelsFast(AiConfig cfg) throws Exception {
+        return listModels(cfg, Duration.ofSeconds(10), 1);
+    }
+
+    private static List<String> listModels(AiConfig cfg, Duration timeout, int maxAttempts) throws Exception {
         AiProvider provider = cfg.provider();
         String base = cfg.activeBaseUrl();
         String key = cfg.activeKey();
@@ -271,11 +286,11 @@ public final class AiClient {
                         + (pageToken != null && !pageToken.isBlank()
                         ? "&pageToken=" + URLEncoder.encode(pageToken, StandardCharsets.UTF_8) : "");
                 HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(Duration.ofSeconds(30))
+                        .timeout(timeout)
                         .header("User-Agent", userAgent())
                         .header("Accept", "application/json");
                 if (key != null && !key.isBlank()) b.header("x-goog-api-key", key);
-                HttpResponse<String> response = sendWithRetry(b.GET().build(), HttpResponse.BodyHandlers.ofString(), false);
+                HttpResponse<String> response = sendWithRetry(b.GET().build(), HttpResponse.BodyHandlers.ofString(), false, maxAttempts);
                 if (response.statusCode() / 100 != 2) {
                     throw new IOException("Model list failed: " + errorMessage(response.body(), response.statusCode()));
                 }
@@ -287,7 +302,7 @@ public final class AiClient {
         } else {
             String url = normalizedBase + (provider.kind() == AiProvider.Kind.ANTHROPIC ? "/models?limit=100" : "/models");
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(timeout)
                     .header("User-Agent", userAgent())
                     .header("Accept", "application/json");
             if (key != null && !key.isBlank()) {
@@ -299,7 +314,7 @@ public final class AiClient {
                 b.header("HTTP-Referer", "https://github.com/whyefkan/eLuajs");
                 b.header("X-Title", "eLuajs");
             }
-            HttpResponse<String> response = sendWithRetry(b.GET().build(), HttpResponse.BodyHandlers.ofString(), false);
+            HttpResponse<String> response = sendWithRetry(b.GET().build(), HttpResponse.BodyHandlers.ofString(), false, maxAttempts);
             if (response.statusCode() / 100 != 2) {
                 throw new IOException("Model list failed: " + errorMessage(response.body(), response.statusCode()));
             }

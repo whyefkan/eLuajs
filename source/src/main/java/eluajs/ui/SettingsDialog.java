@@ -2,6 +2,7 @@ package eluajs.ui;
 
 import eluajs.ai.AiClient;
 import eluajs.ai.AiConfig;
+import eluajs.ai.AiModelSync;
 import eluajs.ai.AiProvider;
 import eluajs.util.I18n;
 import eluajs.util.CrashReporter;
@@ -23,6 +24,7 @@ public final class SettingsDialog extends JDialog {
     private boolean languageChanged;
     private boolean loadingProvider;
     private AiProvider lastProvider;
+    private final java.util.function.Consumer<AiProvider> modelSyncListener = this::onModelsSynced;
 
     private final CardLayout cards = new CardLayout();
     private final JPanel contentPanel = new JPanel(cards);
@@ -68,6 +70,7 @@ public final class SettingsDialog extends JDialog {
         add(body(), BorderLayout.CENTER);
         add(footer(), BorderLayout.SOUTH);
         initialise();
+        AiModelSync.addListener(modelSyncListener);
         showCategory("general", generalButton);
     }
 
@@ -639,6 +642,25 @@ public final class SettingsDialog extends JDialog {
         refreshSavedProviders();
         autoUpdate.setSelected(updateConfig.autoCheck());
         themeCombo.setSelectedIndex(switch (Theme.mode()) { case "light" -> 1; case "black" -> 2; default -> 0; });
+    }
+
+    private void onModelsSynced(AiProvider provider) {
+        SwingUtilities.invokeLater(() -> {
+            if (!isDisplayable() || provider == null) return;
+            AiConfig fresh = AiConfig.load();
+            java.util.List<String> synced = fresh.cachedModels(provider);
+            if (synced.isEmpty()) return;
+            config.setCachedModels(provider, synced);
+            if (providerCombo.getSelectedItem() == provider) {
+                String current = currentComboText(modelCombo);
+                if (current.isBlank()) current = fresh.model(provider);
+                modelCombo.removeAllItems();
+                for (String m : synced) modelCombo.addItem(m);
+                if (!current.isBlank() && !synced.contains(current)) modelCombo.addItem(current);
+                modelCombo.setSelectedItem(current);
+                modelCombo.getEditor().setItem(current);
+            }
+        });
     }
 
     private void loadProviderFields() {

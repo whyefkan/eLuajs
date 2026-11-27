@@ -4,6 +4,7 @@ import eluajs.ai.AiClient;
 import eluajs.ai.AiErrors;
 import eluajs.ai.AiConfig;
 import eluajs.ai.AiMessage;
+import eluajs.ai.AiModelSync;
 import eluajs.ai.AiPricing;
 import eluajs.ai.ChatStore;
 import eluajs.ai.AiAudit;
@@ -154,6 +155,12 @@ public final class AiPanel extends JPanel {
     private long sessionCompletion;
     private long sessionTotal;
     private double sessionCost;
+    private final java.util.function.Consumer<AiProvider> modelSyncListener = provider ->
+            SwingUtilities.invokeLater(() -> {
+                if (busy || provider == null) return;
+                config = AiConfig.load();
+                if (providerCombo.getSelectedItem() == provider) loadModels();
+            });
     private boolean loadingProvider;
 
     public AiPanel(SyntaxEditorPane editor, Supplier<String> fileLabel, Supplier<Path> currentFile,
@@ -199,6 +206,7 @@ public final class AiPanel extends JPanel {
         add(chatArea, BorderLayout.CENTER);
         add(composer(), BorderLayout.SOUTH);
         initialise();
+        AiModelSync.addListener(modelSyncListener);
         installShortcuts();
         restoreLatest();
     }
