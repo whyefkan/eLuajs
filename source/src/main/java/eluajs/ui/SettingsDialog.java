@@ -353,10 +353,13 @@ public final class SettingsDialog extends JDialog {
         form.add(Box.createVerticalStrut(5));
         JLabel modelHint = Ui.label(t("You can type any model supported by the provider."), 10, Font.PLAIN, Theme.MUTED);
         modelHint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        form.add(modelHint);
-        modelHint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        refreshModels.setAlignmentX(Component.LEFT_ALIGNMENT);
-        form.add(refreshModels);
+        JPanel modelActionRow = new JPanel(new BorderLayout(8, 0));
+        modelActionRow.setOpaque(false);
+        modelActionRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        modelActionRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        modelActionRow.add(modelHint, BorderLayout.CENTER);
+        modelActionRow.add(refreshModels, BorderLayout.EAST);
+        form.add(modelActionRow);
         form.add(Box.createVerticalStrut(12));
 
         JPanel baseRow = fieldColumn(t("Base URL (optional)"), baseUrl);
@@ -641,10 +644,11 @@ public final class SettingsDialog extends JDialog {
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) return;
         lastProvider = provider;
+        String activeModel = config.model(provider);
         modelCombo.removeAllItems();
-        for (String model : provider.models()) modelCombo.addItem(model);
-        modelCombo.setSelectedItem(config.model(provider));
-        modelCombo.getEditor().setItem(config.model(provider));
+        for (String model : config.availableModels(provider)) modelCombo.addItem(model);
+        modelCombo.setSelectedItem(activeModel);
+        modelCombo.getEditor().setItem(activeModel);
         baseUrl.setText(config.baseUrl(provider));
         apiKey.setText(config.key(provider));
         apiKey.setEchoChar(showKey.isSelected() ? (char) 0 : '\u2022');
@@ -672,23 +676,37 @@ public final class SettingsDialog extends JDialog {
         storeProviderFields();
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) return;
-        config.setProvider(provider);
+        AiConfig snapshot = config.copy();
+        snapshot.setProvider(provider);
         button.setEnabled(false);
         status.setText(t("Modeller okunuyor..."));
+        status.setForeground(Theme.MUTED);
         SwingWorker<java.util.List<String>, Void> worker = new SwingWorker<>() {
             @Override protected java.util.List<String> doInBackground() throws Exception {
-                return AiClient.listModels(config);
+                return AiClient.listModels(snapshot);
             }
             @Override protected void done() {
                 button.setEnabled(true);
                 try {
                     java.util.List<String> models = get();
-                    String current = config.model(provider);
-                    modelCombo.removeAllItems();
-                    for (String model : models) modelCombo.addItem(model);
-                    if (!current.isBlank() && !models.contains(current)) modelCombo.addItem(current);
-                    modelCombo.setSelectedItem(current);
-                    modelCombo.getEditor().setItem(current);
+                    if (models.isEmpty()) {
+                        status.setText(t("No models returned by provider."));
+                        status.setForeground(Theme.WARNING);
+                        return;
+                    }
+                    config.setCachedModels(provider, models);
+                    boolean sameProvider = providerCombo.getSelectedItem() == provider;
+                    String current = sameProvider ? currentComboText(modelCombo) : config.savedModel(provider);
+                    if (current.isBlank() || !models.contains(current)) {
+                        current = models.get(0);
+                    }
+                    config.setModel(provider, current);
+                    if (sameProvider) {
+                        modelCombo.removeAllItems();
+                        for (String model : models) modelCombo.addItem(model);
+                        modelCombo.setSelectedItem(current);
+                        modelCombo.getEditor().setItem(current);
+                    }
                     status.setText(t("%d model bulundu.", models.size()));
                     status.setForeground(Theme.ACCENT);
                 } catch (Exception ex) {
@@ -701,14 +719,24 @@ public final class SettingsDialog extends JDialog {
         worker.execute();
     }
 
+    private static String currentComboText(JComboBox<String> combo) {
+        if (combo.isEditable()) {
+            Component editor = combo.getEditor().getEditorComponent();
+            if (editor instanceof JTextField field) return field.getText().trim();
+            Object item = combo.getEditor().getItem();
+            if (item != null) return String.valueOf(item).trim();
+        }
+        Object selected = combo.getSelectedItem();
+        return selected == null ? "" : String.valueOf(selected).trim();
+    }
+
     private void storeProviderFields() {
         storeProviderFields((AiProvider) providerCombo.getSelectedItem());
     }
 
     private void storeProviderFields(AiProvider provider) {
         if (provider == null) return;
-        Object model = modelCombo.isEditable() ? modelCombo.getEditor().getItem() : modelCombo.getSelectedItem();
-        config.setModel(provider, model == null ? "" : String.valueOf(model));
+        config.setModel(provider, currentComboText(modelCombo));
         config.setBaseUrl(provider, baseUrl.getText());
         config.setKey(provider, new String(apiKey.getPassword()));
         config.setTokenBudgetEnabled(tokenBudgetEnabled.isSelected());
@@ -727,13 +755,16 @@ public final class SettingsDialog extends JDialog {
 
     private void testConnection(JButton button) {
         storeProviderFields();
-        config.setProvider((AiProvider) providerCombo.getSelectedItem());
+        AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
+        if (provider == null) return;
+        AiConfig snapshot = config.copy();
+        snapshot.setProvider(provider);
         button.setEnabled(false);
         status.setText(t("Thinking..."));
         status.setForeground(Theme.MUTED);
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override protected String doInBackground() throws Exception {
-                return AiClient.complete(config, "You are a connectivity test.", "Reply with exactly: OK");
+                return AiClient.complete(snapshot, "You are a connectivity test.", "Reply with exactly: OK");
             }
             @Override protected void done() {
                 button.setEnabled(true);

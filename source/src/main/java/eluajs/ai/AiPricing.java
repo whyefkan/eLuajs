@@ -11,14 +11,23 @@ public final class AiPricing {
     private static final List<Rate> RATES = new ArrayList<>();
 
     static {
+        rate("gpt-6.2-astra", 10.00, 50.00);
+        rate("gpt-6.2-sol", 2.00, 10.00);
         rate("gpt-6-astra", 10.00, 50.00);
         rate("gpt-6.1-sol", 2.00, 10.00);
         rate("gpt-6.1-terra", 1.00, 5.00);
         rate("gpt-6-luna", 0.10, 0.50);
+        rate("gpt-5.6-sol", 2.00, 10.00);
+        rate("claude-fable-5-2", 8.00, 40.00);
+        rate("claude-fable-5.2", 8.00, 40.00);
         rate("claude-fable-5-1", 10.00, 50.00);
+        rate("claude-fable-5.1", 10.00, 50.00);
         rate("claude-opus-5-5", 4.00, 20.00);
+        rate("claude-opus-5.5", 4.00, 20.00);
         rate("claude-sonnet-5-5", 2.00, 10.00);
+        rate("claude-sonnet-5.5", 2.00, 10.00);
         rate("claude-haiku-5-5", 0.10, 0.50);
+        rate("claude-haiku-5.5", 0.10, 0.50);
         rate("gpt-5-mini", 0.25, 2.00);
         rate("gpt-5-nano", 0.05, 0.40);
         rate("gpt-5", 1.25, 10.00);
@@ -29,6 +38,13 @@ public final class AiPricing {
         rate("claude-opus-4", 15.00, 75.00);
         rate("claude-haiku-4", 1.00, 5.00);
         rate("claude-3-5-sonnet", 3.00, 15.00);
+        rate("gemini-4-carbon", 2.50, 15.00);
+        rate("gemini-4-neon", 1.25, 10.00);
+        rate("gemini-4-hydrogen", 0.40, 2.50);
+        rate("gemini-4-argon", 1.25, 10.00);
+        rate("gemini-3.8-flash", 0.30, 2.50);
+        rate("gemini-3.6-flash", 0.30, 2.50);
+        rate("gemini-3.5-flash-lite", 0.10, 0.40);
         rate("gemini-2.5-pro", 1.25, 10.00);
         rate("gemini-2.5-flash", 0.30, 2.50);
         rate("gemini-2.0-flash", 0.10, 0.40);
@@ -36,18 +52,17 @@ public final class AiPricing {
         rate("gemini-1.5-flash", 0.075, 0.30);
         rate("openai/gpt-oss-120b", 0.15, 0.75);
         rate("openai/gpt-oss-20b", 0.10, 0.50);
+        rate("llama-4-scout", 0.11, 0.34);
         rate("llama-3.3-70b", 0.59, 0.79);
         rate("llama-3.1-8b", 0.05, 0.08);
+        rate("deepseek-pro", 0.55, 2.19);
+        rate("deepseek-flash", 0.27, 1.10);
+        rate("deepseek-v4.1-flash", 0.27, 1.10);
         rate("deepseek-v4-pro", 0.55, 2.19);
         rate("deepseek-v4-flash", 0.27, 1.10);
         rate("deepseek-chat", 0.27, 1.10);
         rate("deepseek-reasoner", 0.55, 2.19);
-        rate("openai/gpt-5-mini", 0.25, 2.00);
-        rate("openai/gpt-5", 1.25, 10.00);
-        rate("anthropic/claude-sonnet-4.5", 3.00, 15.00);
-        rate("google/gemini-2.5-pro", 1.25, 10.00);
-        rate("deepseek/deepseek-v4-pro", 0.55, 2.19);
-        rate("deepseek/deepseek-v4-flash", 0.27, 1.10);
+        rate("x-ai/grok-4", 3.00, 15.00);
         RATES.sort(Comparator.comparingInt((Rate r) -> r.prefix().length()).reversed());
     }
 

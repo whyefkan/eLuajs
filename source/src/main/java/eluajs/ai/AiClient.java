@@ -1,5 +1,6 @@
 package eluajs.ai;
 
+import eluajs.util.AppInfo;
 import eluajs.util.I18n;
 
 import java.io.IOException;
@@ -10,8 +11,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -19,6 +24,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class AiClient {
     private static final AtomicReference<AutoCloseable> ACTIVE_STREAM = new AtomicReference<>();
     private static final AtomicBoolean CANCELLED = new AtomicBoolean();
+    private static final int MAX_ATTEMPTS = 3;
+    private static final int ANTHROPIC_MAX_TOKENS = 8192;
 
     public static void cancelActive() {
         CANCELLED.set(true);
@@ -44,16 +51,23 @@ public final class AiClient {
 
     private AiClient() {}
 
-    private static final int MAX_ATTEMPTS = 3;
+    private static String userAgent() {
+        return "eLuajs/" + AppInfo.version();
+    }
 
-    private static <T> HttpResponse<T> sendWithRetry(HttpRequest request, HttpResponse.BodyHandler<T> handler) throws Exception {
+    private static <T> HttpResponse<T> sendWithRetry(HttpRequest request, HttpResponse.BodyHandler<T> handler,
+                                                     boolean honorCancel) throws Exception {
         Exception last = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            checkCancelled();
+            if (honorCancel) checkCancelled();
+            else if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Request interrupted");
             try {
                 HttpResponse<T> response = HTTP.send(request, handler);
                 int status = response.statusCode();
-                if (status != 429 && status < 500) return response;
+                if ((status != 429 && status < 500) || attempt == MAX_ATTEMPTS) return response;
+                if (response.body() instanceof AutoCloseable closeable) {
+                    try { closeable.close(); } catch (Exception ignored) { }
+                }
                 last = new IOException("HTTP " + status);
             } catch (java.io.IOException ex) {
                 last = ex;
@@ -93,9 +107,12 @@ public final class AiClient {
             case ANTHROPIC -> anthropicRequest(base, model, key, system, messages, true);
             case GEMINI -> geminiRequest(base, model, key, system, messages, true);
         };
-        HttpResponse<java.io.InputStream> response = sendWithRetry(request, HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<java.io.InputStream> response = sendWithRetry(request, HttpResponse.BodyHandlers.ofInputStream(), true);
         if (response.statusCode() / 100 != 2) {
-            String body = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+            String body;
+            try (java.io.InputStream errStream = response.body()) {
+                body = new String(errStream.readAllBytes(), StandardCharsets.UTF_8);
+            }
             throw new IOException(errorMessage(body, response.statusCode()));
         }
         StringBuilder text = new StringBuilder();
@@ -110,36 +127,47 @@ public final class AiClient {
                 String data = line.substring(5).trim();
                 if (data.equals("[DONE]")) break;
                 if (data.isEmpty()) continue;
+                Object root;
                 try {
-                    Object root = Json.parse(data);
-                    if (provider.kind() == AiProvider.Kind.OPENAI) {
-                        Object delta = Json.at(root, "choices", 0, "delta", "content");
-                        appendDelta(text, delta, onDelta);
-                        long p = number(Json.at(root, "usage", "prompt_tokens"));
-                        long c = number(Json.at(root, "usage", "completion_tokens"));
-                        long t = number(Json.at(root, "usage", "total_tokens"));
-                        if (p > 0) prompt = p;
-                        if (c > 0) completion = c;
-                        if (t > 0) total = t;
-                    } else if (provider.kind() == AiProvider.Kind.ANTHROPIC) {
+                    root = Json.parse(data);
+                } catch (Exception ignored) {
+                    continue;
+                }
+                String streamErr = streamedError(root);
+                if (streamErr != null) throw new IOException(streamErr);
+                if (provider.kind() == AiProvider.Kind.OPENAI) {
+                    Object delta = Json.at(root, "choices", 0, "delta", "content");
+                    appendDelta(text, delta, onDelta);
+                    long p = number(Json.at(root, "usage", "prompt_tokens"));
+                    long c = number(Json.at(root, "usage", "completion_tokens"));
+                    long t = number(Json.at(root, "usage", "total_tokens"));
+                    if (p > 0) prompt = p;
+                    if (c > 0) completion = c;
+                    if (t > 0) total = t;
+                } else if (provider.kind() == AiProvider.Kind.ANTHROPIC) {
+                    if ("content_block_delta".equals(Json.stringAt(root, "type"))
+                            || Json.at(root, "delta", "text") != null) {
                         appendDelta(text, Json.at(root, "delta", "text"), onDelta);
-                        long p = number(Json.at(root, "message", "usage", "input_tokens"));
-                        long c = number(Json.at(root, "usage", "output_tokens"));
-                        if (p > 0) prompt = p;
-                        if (c > 0) completion = c;
-                    } else {
-                        Object candidates = Json.at(root, "candidates");
-                        if (candidates instanceof java.util.List<?> list && !list.isEmpty()) {
-                            appendDelta(text, Json.at(list.get(0), "content", "parts", 0, "text"), onDelta);
-                        }
-                        long p = number(Json.at(root, "usageMetadata", "promptTokenCount"));
-                        long c = number(Json.at(root, "usageMetadata", "candidatesTokenCount"));
-                        long t = number(Json.at(root, "usageMetadata", "totalTokenCount"));
-                        if (p > 0) prompt = p;
-                        if (c > 0) completion = c;
-                        if (t > 0) total = t;
                     }
-                } catch (Exception ignored) { }
+                    long p = number(Json.at(root, "message", "usage", "input_tokens"));
+                    long c = number(Json.at(root, "usage", "output_tokens"));
+                    if (p > 0) prompt = p;
+                    if (c > 0) completion = c;
+                } else {
+                    Object parts = Json.at(root, "candidates", 0, "content", "parts");
+                    if (parts instanceof List<?> partList) {
+                        for (Object part : partList) {
+                            if (part instanceof Map<?, ?> map && Boolean.TRUE.equals(map.get("thought"))) continue;
+                            appendDelta(text, text(part), onDelta);
+                        }
+                    }
+                    long p = number(Json.at(root, "usageMetadata", "promptTokenCount"));
+                    long c = number(Json.at(root, "usageMetadata", "candidatesTokenCount"));
+                    long t = number(Json.at(root, "usageMetadata", "totalTokenCount"));
+                    if (p > 0) prompt = p;
+                    if (c > 0) completion = c;
+                    if (t > 0) total = t;
+                }
             }
         } finally {
             ACTIVE_STREAM.compareAndSet(streamBody, null);
@@ -148,6 +176,17 @@ public final class AiClient {
         if (completion <= 0) completion = Math.max(1, text.length() / 4);
         if (total <= 0) total = prompt + completion;
         return new AiResult(text.toString().trim(), prompt, completion, total);
+    }
+
+    private static String streamedError(Object root) {
+        if (!(root instanceof Map<?, ?> map)) return null;
+        if ("error".equals(Json.stringAt(root, "type")) || map.containsKey("error")) {
+            Object msg = Json.at(root, "error", "message");
+            if (msg != null && !String.valueOf(msg).isBlank()) return String.valueOf(msg);
+            Object err = map.get("error");
+            if (err != null && !String.valueOf(err).isBlank()) return String.valueOf(err);
+        }
+        return null;
     }
 
     private static void appendDelta(StringBuilder text, Object delta, java.util.function.Consumer<String> onDelta) {
@@ -178,7 +217,7 @@ public final class AiClient {
             case GEMINI -> geminiRequest(base, model, key, system, messages);
         };
 
-        HttpResponse<String> response = sendWithRetry(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = sendWithRetry(request, HttpResponse.BodyHandlers.ofString(), true);
         String body = response.body() == null ? "" : response.body();
         if (response.statusCode() / 100 != 2) {
             throw new IOException(errorMessage(body, response.statusCode()));
@@ -222,45 +261,145 @@ public final class AiClient {
         String base = cfg.activeBaseUrl();
         String key = cfg.activeKey();
         if (base == null || base.isBlank()) throw new IOException(I18n.t("Base URL is required for this provider."));
-        String url = base.replaceAll("/+$", "");
-        HttpRequest.Builder b;
+        String normalizedBase = normalizeBaseUrl(base);
+        Set<String> collected = new LinkedHashSet<>();
+
         if (provider.kind() == AiProvider.Kind.GEMINI) {
-            url += "/models?key=" + URLEncoder.encode(key == null ? "" : key, StandardCharsets.UTF_8);
-            b = HttpRequest.newBuilder(URI.create(url));
+            String pageToken = null;
+            for (int page = 0; page < 5; page++) {
+                String url = normalizedBase + "/models?pageSize=1000"
+                        + (pageToken != null && !pageToken.isBlank()
+                        ? "&pageToken=" + URLEncoder.encode(pageToken, StandardCharsets.UTF_8) : "");
+                HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                        .timeout(Duration.ofSeconds(30))
+                        .header("User-Agent", userAgent())
+                        .header("Accept", "application/json");
+                if (key != null && !key.isBlank()) b.header("x-goog-api-key", key);
+                HttpResponse<String> response = sendWithRetry(b.GET().build(), HttpResponse.BodyHandlers.ofString(), false);
+                if (response.statusCode() / 100 != 2) {
+                    throw new IOException("Model list failed: " + errorMessage(response.body(), response.statusCode()));
+                }
+                Object root = Json.parse(response.body());
+                collected.addAll(parseModelList(provider, root));
+                pageToken = Json.stringAt(root, "nextPageToken");
+                if (pageToken == null || pageToken.isBlank()) break;
+            }
         } else {
-            url += "/models";
-            b = HttpRequest.newBuilder(URI.create(url));
+            String url = normalizedBase + (provider.kind() == AiProvider.Kind.ANTHROPIC ? "/models?limit=100" : "/models");
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("User-Agent", userAgent())
+                    .header("Accept", "application/json");
             if (key != null && !key.isBlank()) {
                 if (provider.kind() == AiProvider.Kind.ANTHROPIC) b.header("x-api-key", key);
                 else b.header("Authorization", "Bearer " + key);
             }
             if (provider.kind() == AiProvider.Kind.ANTHROPIC) b.header("anthropic-version", "2023-06-01");
-        }
-        b.timeout(Duration.ofSeconds(30)).header("User-Agent", "eLuajs/1.5.7")
-                .header("Accept", "application/json");
-        HttpResponse<String> response = sendWithRetry(b.GET().build(), HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() / 100 != 2) throw new IOException("Model list failed: HTTP " + response.statusCode());
-        Object root = Json.parse(response.body());
-        List<String> result = new java.util.ArrayList<>();
-        Object list = Json.at(root, "data");
-        if (list instanceof List<?> items) {
-            for (Object item : items) {
-                String id = item instanceof Map<?, ?> map ? String.valueOf(map.get("id")) : null;
-                if (id != null && !id.isBlank() && !id.equals("null")) result.add(id);
+            if (provider == AiProvider.OPENROUTER) {
+                b.header("HTTP-Referer", "https://github.com/whyefkan/eLuajs");
+                b.header("X-Title", "eLuajs");
             }
-        }
-        list = Json.at(root, "models");
-        if (list instanceof List<?> items) {
-            for (Object item : items) {
-                String name = item instanceof Map<?, ?> map ? String.valueOf(map.get("name")) : null;
-                if (name != null && !name.isBlank() && !name.equals("null")) {
-                    if (name.startsWith("models/")) name = name.substring(7);
-                    result.add(name);
-                }
+            HttpResponse<String> response = sendWithRetry(b.GET().build(), HttpResponse.BodyHandlers.ofString(), false);
+            if (response.statusCode() / 100 != 2) {
+                throw new IOException("Model list failed: " + errorMessage(response.body(), response.statusCode()));
             }
+            Object root = Json.parse(response.body());
+            collected.addAll(parseModelList(provider, root));
         }
+
+        List<String> result = new ArrayList<>(collected);
         result.sort(String.CASE_INSENSITIVE_ORDER);
         return result;
+    }
+
+    static List<String> parseModelList(AiProvider provider, Object root) {
+        Set<String> result = new LinkedHashSet<>();
+        Object dataList = Json.at(root, "data");
+        if (dataList instanceof List<?> items) {
+            collectModelEntries(provider, items, result);
+        }
+        Object modelsList = Json.at(root, "models");
+        if (modelsList instanceof List<?> items) {
+            collectModelEntries(provider, items, result);
+        }
+        if (root instanceof List<?> items) {
+            collectModelEntries(provider, items, result);
+        }
+        return new ArrayList<>(result);
+    }
+
+    private static void collectModelEntries(AiProvider provider, List<?> items, Set<String> out) {
+        for (Object item : items) {
+            String id = null;
+            if (item instanceof String s) {
+                id = s;
+            } else if (item instanceof Map<?, ?> map) {
+                if (provider != null && provider.kind() == AiProvider.Kind.GEMINI) {
+                    Object methods = map.get("supportedGenerationMethods");
+                    if (methods instanceof List<?> methodList && !methodList.isEmpty()
+                            && !methodList.contains("generateContent")) {
+                        continue;
+                    }
+                }
+                Object rawId = map.get("id");
+                Object rawName = map.get("name");
+                if (rawId != null && !String.valueOf(rawId).isBlank()) id = String.valueOf(rawId);
+                else if (rawName != null && !String.valueOf(rawName).isBlank()) id = String.valueOf(rawName);
+            }
+            if (id == null) continue;
+            id = id.trim();
+            if (id.isEmpty() || "null".equals(id)) continue;
+            if (id.startsWith("models/")) id = id.substring("models/".length());
+            if (provider == AiProvider.OPENAI && !isOpenAiChatModel(id)) continue;
+            out.add(id);
+        }
+    }
+
+    static boolean isOpenAiChatModel(String id) {
+        String m = id.toLowerCase(Locale.ROOT);
+        if (m.contains("embedding") || m.contains("whisper") || m.contains("moderation")
+                || m.contains("dall-e") || m.contains("gpt-image") || m.contains("sora")
+                || m.contains("transcribe") || m.contains("realtime") || m.contains("gpt-live")
+                || m.startsWith("tts-") || m.contains("-tts") || m.startsWith("babbage")
+                || m.startsWith("davinci") || m.contains("audio-preview")) {
+            return false;
+        }
+        return true;
+    }
+
+    static boolean supportsCustomTemperature(AiProvider provider, String model) {
+        if (model == null || model.isBlank()) return false;
+        String m = model.trim().toLowerCase(Locale.ROOT);
+        int slash = m.lastIndexOf('/');
+        String bare = slash >= 0 ? m.substring(slash + 1) : m;
+
+        if (provider == AiProvider.ANTHROPIC) {
+            return bare.startsWith("claude-3");
+        }
+        if (provider == AiProvider.GEMINI) {
+            return bare.startsWith("gemini-1.") || bare.startsWith("gemini-2.0");
+        }
+        if (bare.startsWith("gpt-6") || bare.startsWith("gpt-5")
+                || bare.startsWith("o1") || bare.startsWith("o3") || bare.startsWith("o4")
+                || bare.startsWith("deepseek-reasoner") || bare.equals("deepseek-pro")
+                || bare.startsWith("claude-fable") || bare.startsWith("claude-opus-5")
+                || bare.startsWith("claude-sonnet-5") || bare.startsWith("claude-haiku-5")
+                || bare.startsWith("claude-opus-4-7") || bare.startsWith("claude-opus-4-8")) {
+            return false;
+        }
+        return true;
+    }
+
+    static String normalizeBaseUrl(String base) {
+        String b = base == null ? "" : base.trim();
+        while (b.endsWith("/")) b = b.substring(0, b.length() - 1);
+        for (String suffix : new String[]{"/chat/completions", "/messages", "/responses", "/models"}) {
+            if (b.endsWith(suffix)) {
+                b = b.substring(0, b.length() - suffix.length());
+                while (b.endsWith("/")) b = b.substring(0, b.length() - 1);
+            }
+        }
+        return b;
     }
 
     private static long number(Object value) {
@@ -279,14 +418,19 @@ public final class AiClient {
     private static HttpRequest openAiRequest(AiProvider provider, String base, String model, String key,
                                              String system, List<AiMessage> messages, boolean stream) {
         String url = endpoint(base, "/chat/completions");
-        String body = "{\"model\":" + Json.quote(model)
-                + ",\"messages\":" + openAiMessages(system, messages) + ",\"temperature\":0.2"
-                + (stream ? ",\"stream\":true" : "") + "}";
+        StringBuilder body = new StringBuilder();
+        body.append("{\"model\":").append(Json.quote(model))
+                .append(",\"messages\":").append(openAiMessages(system, messages));
+        if (supportsCustomTemperature(provider, model)) {
+            body.append(",\"temperature\":0.2");
+        }
+        if (stream) body.append(",\"stream\":true");
+        body.append('}');
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(120))
                 .header("Content-Type", "application/json")
-                .header("User-Agent", "eLuajs/1.5.7")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+                .header("User-Agent", userAgent())
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8));
         if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
         if (provider == AiProvider.OPENROUTER) {
             b.header("HTTP-Referer", "https://github.com/whyefkan/eLuajs");
@@ -302,19 +446,25 @@ public final class AiClient {
     private static HttpRequest anthropicRequest(String base, String model, String key, String system,
                                                 List<AiMessage> messages, boolean stream) {
         String url = endpoint(base, "/messages");
-        String body = "{\"model\":" + Json.quote(model)
-                + ",\"max_tokens\":4096,\"temperature\":0.2"
-                + ",\"system\":[{\"type\":\"text\",\"text\":" + Json.quote(system)
-                + ",\"cache_control\":{\"type\":\"ephemeral\"}}]"
-                + (stream ? ",\"stream\":true" : "")
-                + ",\"messages\":" + anthropicMessages(messages) + "}";
+        StringBuilder body = new StringBuilder();
+        body.append("{\"model\":").append(Json.quote(model))
+                .append(",\"max_tokens\":").append(ANTHROPIC_MAX_TOKENS);
+        if (supportsCustomTemperature(AiProvider.ANTHROPIC, model)) {
+            body.append(",\"temperature\":0.2");
+        }
+        if (system != null && !system.isBlank()) {
+            body.append(",\"system\":[{\"type\":\"text\",\"text\":").append(Json.quote(system))
+                    .append(",\"cache_control\":{\"type\":\"ephemeral\"}}]");
+        }
+        if (stream) body.append(",\"stream\":true");
+        body.append(",\"messages\":").append(anthropicMessages(messages)).append('}');
         return HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(120))
                 .header("Content-Type", "application/json")
                 .header("x-api-key", key)
                 .header("anthropic-version", "2023-06-01")
-                .header("User-Agent", "eLuajs/1.5.7")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .header("User-Agent", userAgent())
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8))
                 .build();
     }
 
@@ -326,61 +476,90 @@ public final class AiClient {
                                              List<AiMessage> messages, boolean stream) {
         String m = model.startsWith("models/") ? model.substring("models/".length()) : model;
         String encodedModel = URLEncoder.encode(m, StandardCharsets.UTF_8).replace("+", "%20");
-        String encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8);
-        String url = endpoint(base, "/models/" + encodedModel + (stream ? ":streamGenerateContent?alt=sse&key=" : ":generateContent?key=") + encodedKey);
-        String body = "{\"system_instruction\":{\"parts\":[{\"text\":" + Json.quote(system) + "}]},"
-                + "\"contents\":" + geminiContents(messages) + ","
-                + "\"generationConfig\":{\"temperature\":0.2}}";
-        return HttpRequest.newBuilder(URI.create(url))
+        String url = endpoint(base, "/models/" + encodedModel + (stream ? ":streamGenerateContent?alt=sse" : ":generateContent"));
+        StringBuilder body = new StringBuilder("{");
+        boolean needsComma = false;
+        if (system != null && !system.isBlank()) {
+            body.append("\"system_instruction\":{\"parts\":[{\"text\":").append(Json.quote(system)).append("}]}");
+            needsComma = true;
+        }
+        if (needsComma) body.append(',');
+        body.append("\"contents\":").append(geminiContents(messages));
+        if (supportsCustomTemperature(AiProvider.GEMINI, m)) {
+            body.append(",\"generationConfig\":{\"temperature\":0.2}");
+        }
+        body.append('}');
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(120))
                 .header("Content-Type", "application/json")
-                .header("User-Agent", "eLuajs/1.5.7")
-                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                .build();
+                .header("User-Agent", userAgent())
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8));
+        if (key != null && !key.isBlank()) b.header("x-goog-api-key", key);
+        return b.build();
     }
 
     private static String openAiMessages(String system, List<AiMessage> messages) {
         StringBuilder b = new StringBuilder("[");
-        b.append("{\"role\":\"system\",\"content\":").append(Json.quote(system)).append("}");
-        for (AiMessage m : messages) {
-            if (m == null || m.content() == null || m.content().isBlank()) continue;
-            b.append(",{\"role\":").append(Json.quote(m.role()))
-                    .append(",\"content\":").append(Json.quote(m.content())).append("}");
-        }
-        return b.append("]").toString();
-    }
-
-    private static String anthropicMessages(List<AiMessage> messages) {
-        StringBuilder b = new StringBuilder("[");
         boolean first = true;
+        if (system != null && !system.isBlank()) {
+            b.append("{\"role\":\"system\",\"content\":").append(Json.quote(system)).append("}");
+            first = false;
+        }
         for (AiMessage m : messages) {
             if (m == null || m.content() == null || m.content().isBlank()) continue;
-            String role = "assistant".equals(m.role()) ? "assistant" : "user";
             if (!first) b.append(',');
             first = false;
-            b.append("{\"role\":").append(Json.quote(role))
+            b.append("{\"role\":").append(Json.quote(m.role()))
                     .append(",\"content\":").append(Json.quote(m.content())).append("}");
         }
         if (first) b.append("{\"role\":\"user\",\"content\":\"(continue)\"}");
         return b.append("]").toString();
     }
 
-    private static String geminiContents(List<AiMessage> messages) {
-        StringBuilder b = new StringBuilder("[");
-        boolean first = true;
+    static List<AiMessage> mergeConsecutiveRoles(List<AiMessage> messages, String assistantRole, String userRole) {
+        List<AiMessage> merged = new ArrayList<>();
         for (AiMessage m : messages) {
             if (m == null || m.content() == null || m.content().isBlank()) continue;
-            String role = "assistant".equals(m.role()) ? "model" : "user";
-            if (!first) b.append(',');
-            first = false;
-            b.append("{\"role\":").append(Json.quote(role))
-                    .append(",\"parts\":[{\"text\":").append(Json.quote(m.content())).append("}]}");
+            String role = "assistant".equals(m.role()) ? assistantRole : userRole;
+            if (merged.isEmpty() && role.equals(assistantRole)) {
+                merged.add(new AiMessage(userRole, "(continue)"));
+            }
+            if (!merged.isEmpty() && merged.get(merged.size() - 1).role().equals(role)) {
+                AiMessage prev = merged.get(merged.size() - 1);
+                merged.set(merged.size() - 1, new AiMessage(role, prev.content() + "\n\n" + m.content()));
+            } else {
+                merged.add(new AiMessage(role, m.content()));
+            }
         }
-        if (first) b.append("{\"role\":\"user\",\"parts\":[{\"text\":\"(continue)\"}]}");
+        if (merged.isEmpty()) merged.add(new AiMessage(userRole, "(continue)"));
+        return merged;
+    }
+
+    static String anthropicMessages(List<AiMessage> messages) {
+        List<AiMessage> merged = mergeConsecutiveRoles(messages, "assistant", "user");
+        StringBuilder b = new StringBuilder("[");
+        for (int i = 0; i < merged.size(); i++) {
+            AiMessage m = merged.get(i);
+            if (i > 0) b.append(',');
+            b.append("{\"role\":").append(Json.quote(m.role()))
+                    .append(",\"content\":").append(Json.quote(m.content())).append("}");
+        }
         return b.append("]").toString();
     }
 
-    private static String endpoint(String base, String suffix) {
+    static String geminiContents(List<AiMessage> messages) {
+        List<AiMessage> merged = mergeConsecutiveRoles(messages, "model", "user");
+        StringBuilder b = new StringBuilder("[");
+        for (int i = 0; i < merged.size(); i++) {
+            AiMessage m = merged.get(i);
+            if (i > 0) b.append(',');
+            b.append("{\"role\":").append(Json.quote(m.role()))
+                    .append(",\"parts\":[{\"text\":").append(Json.quote(m.content())).append("}]}");
+        }
+        return b.append("]").toString();
+    }
+
+    static String endpoint(String base, String suffix) {
         String b = base == null ? "" : base.trim();
         while (b.endsWith("/")) b = b.substring(0, b.length() - 1);
         if (suffix.equals("/chat/completions") && b.endsWith("/chat/completions")) return b;
@@ -392,6 +571,8 @@ public final class AiClient {
         if (value == null) return null;
         if (value instanceof String s) return s;
         if (value instanceof Map<?, ?> map) {
+            if (Boolean.TRUE.equals(map.get("thought"))) return null;
+            if ("thinking".equals(map.get("type"))) return null;
             Object t = map.get("text");
             return t == null ? null : text(t);
         }
@@ -399,7 +580,7 @@ public final class AiClient {
         return String.valueOf(value);
     }
 
-    private static String joinParts(Object value) {
+    static String joinParts(Object value) {
         if (value == null) return null;
         if (value instanceof String s) return s;
         StringBuilder b = new StringBuilder();

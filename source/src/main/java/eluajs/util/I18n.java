@@ -4208,6 +4208,21 @@ public final class I18n {
     static {
         en("Keystore kontrolü zaman aşımına uğradı.", "Keystore check timed out.");
         tr("Keystore kontrolü zaman aşımına uğradı.", "Keystore kontrolü zaman aşımına uğradı.");
+        tr("No models returned by provider.", "Sağlayıcı hiç model döndürmedi.");
+        tr("Model not found on this provider. Click Refresh Models or choose another model.",
+                "Model bu sağlayıcıda bulunamadı. Modelleri Yenile'ye tıklayın veya başka bir model seçin.");
+        deT("No models returned by provider.", "Der Anbieter hat keine Modelle zurückgegeben.");
+        deT("Model not found on this provider. Click Refresh Models or choose another model.",
+                "Modell bei diesem Anbieter nicht gefunden. Klicken Sie auf Modelle aktualisieren oder wählen Sie ein anderes Modell.");
+        frT("No models returned by provider.", "Aucun modèle renvoyé par le fournisseur.");
+        frT("Model not found on this provider. Click Refresh Models or choose another model.",
+                "Modèle introuvable chez ce fournisseur. Cliquez sur Actualiser les modèles ou choisissez-en un autre.");
+        esT("No models returned by provider.", "El proveedor no devolvió ningún modelo.");
+        esT("Model not found on this provider. Click Refresh Models or choose another model.",
+                "Modelo no encontrado en este proveedor. Haz clic en Actualizar modelos o elige otro modelo.");
+        ruT("No models returned by provider.", "Провайдер не вернул ни одной модели.");
+        ruT("Model not found on this provider. Click Refresh Models or choose another model.",
+                "Модель не найдена у этого провайдера. Нажмите Обновить модели или выберите другую модель.");
     }
 
 }

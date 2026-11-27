@@ -338,11 +338,17 @@ public final class AiPanel extends JPanel {
         modelCombo.setToolTipText(t("You can type any model supported by the provider."));
         JPanel modelRow = new JPanel(new GridLayout(1, 2, 7, 0));
         modelRow.setOpaque(false);
-        modelRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        modelRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
         modelRow.add(providerCombo);
         modelRow.add(modelCombo);
-        root.add(modelRow);
+        JButton refreshModels = iconOnly("refresh", t("Modelleri Yenile"));
+        refreshModels.addActionListener(e -> refreshModels(refreshModels));
+        JPanel modelBar = new JPanel(new BorderLayout(5, 0));
+        modelBar.setOpaque(false);
+        modelBar.setAlignmentX(Component.LEFT_ALIGNMENT);
+        modelBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        modelBar.add(modelRow, BorderLayout.CENTER);
+        modelBar.add(refreshModels, BorderLayout.EAST);
+        root.add(modelBar);
         root.add(Box.createVerticalStrut(4));
 
         JPanel bottomRow = new JPanel(new BorderLayout(8, 0));
@@ -412,54 +418,120 @@ public final class AiPanel extends JPanel {
 
     public void reloadConfig() {
         config = AiConfig.load();
+        boolean prev = loadingProvider;
         loadingProvider = true;
-        providerCombo.setSelectedItem(config.provider());
-        loadingProvider = false;
-        loadModels();
+        try {
+            providerCombo.setSelectedItem(config.provider());
+            loadModels();
+        } finally {
+            loadingProvider = prev;
+        }
     }
 
     private void initialise() {
         lastProvider = config.provider();
         loadingProvider = true;
-        providerCombo.setSelectedItem(lastProvider);
-        loadingProvider = false;
-        loadModels();
+        try {
+            providerCombo.setSelectedItem(lastProvider);
+            loadModels();
+        } finally {
+            loadingProvider = false;
+        }
         providerCombo.addActionListener(e -> {
             if (loadingProvider) return;
-            storeModel(lastProvider);
+            String previousModel = currentComboText(modelCombo);
             AiProvider next = (AiProvider) providerCombo.getSelectedItem();
+            config = AiConfig.load();
+            if (lastProvider != null && !previousModel.isEmpty()) {
+                config.setModel(lastProvider, previousModel);
+            }
             if (next != null) config.setProvider(next);
-            loadModels();
             config.save();
-            updateKeyStatus();
+            loadModels();
         });
         modelCombo.addActionListener(e -> {
             if (loadingProvider) return;
             AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
             if (provider == null) return;
-            Object model = modelCombo.isEditable() ? modelCombo.getEditor().getItem() : modelCombo.getSelectedItem();
+            String model = currentComboText(modelCombo);
+            if (model.isEmpty()) return;
+            config = AiConfig.load();
             config.setProvider(provider);
-            config.setModel(provider, model == null ? "" : String.valueOf(model));
+            config.setModel(provider, model);
             config.save();
             updateKeyStatus();
         });
     }
 
     private void loadModels() {
-        AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
-        if (provider == null) return;
-        lastProvider = provider;
-        modelCombo.removeAllItems();
-        for (String model : provider.models()) modelCombo.addItem(model);
-        modelCombo.setSelectedItem(config.model(provider));
-        modelCombo.getEditor().setItem(config.model(provider));
-        updateKeyStatus();
+        boolean prev = loadingProvider;
+        loadingProvider = true;
+        try {
+            AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
+            if (provider == null) return;
+            lastProvider = provider;
+            String activeModel = config.model(provider);
+            modelCombo.removeAllItems();
+            for (String model : config.availableModels(provider)) modelCombo.addItem(model);
+            modelCombo.setSelectedItem(activeModel);
+            modelCombo.getEditor().setItem(activeModel);
+            updateKeyStatus();
+        } finally {
+            loadingProvider = prev;
+        }
     }
 
-    private void storeModel(AiProvider provider) {
+    private void refreshModels(JButton button) {
+        AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) return;
-        Object model = modelCombo.isEditable() ? modelCombo.getEditor().getItem() : modelCombo.getSelectedItem();
-        config.setModel(provider, model == null ? "" : String.valueOf(model));
+        config = AiConfig.load();
+        AiConfig snapshot = config.copy();
+        snapshot.setProvider(provider);
+        button.setEnabled(false);
+        status.setText(t("Modeller okunuyor..."));
+        status.setForeground(Theme.MUTED);
+        SwingWorker<List<String>, Void> worker = new SwingWorker<>() {
+            @Override protected List<String> doInBackground() throws Exception {
+                return AiClient.listModels(snapshot);
+            }
+            @Override protected void done() {
+                button.setEnabled(true);
+                try {
+                    List<String> models = get();
+                    if (models.isEmpty()) {
+                        status.setText(t("No models returned by provider."));
+                        status.setForeground(Theme.WARNING);
+                        return;
+                    }
+                    config = AiConfig.load();
+                    config.setCachedModels(provider, models);
+                    boolean sameProvider = providerCombo.getSelectedItem() == provider;
+                    String current = sameProvider ? currentComboText(modelCombo) : config.savedModel(provider);
+                    if (current.isBlank() || !models.contains(current)) current = models.get(0);
+                    config.setModel(provider, current);
+                    config.save();
+                    if (sameProvider) loadModels();
+                    status.setText(t("%d model bulundu.", models.size()));
+                    status.setForeground(Theme.ACCENT);
+                } catch (Exception ex) {
+                    Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+                    status.setText(t("Modeller okunamadı: %s", cause.getMessage()));
+                    status.setForeground(Theme.DANGER);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private static String currentComboText(JComboBox<String> combo) {
+        if (combo.isEditable()) {
+            Component editor = combo.getEditor().getEditorComponent();
+            if (editor instanceof JTextField field) return field.getText().trim();
+            Object item = combo.getEditor().getItem();
+            if (item != null) return String.valueOf(item).trim();
+        }
+        Object selected = combo.getSelectedItem();
+        return selected == null ? "" : String.valueOf(selected).trim();
     }
 
     private void updateKeyStatus() {
@@ -659,10 +731,11 @@ public final class AiPanel extends JPanel {
         config = AiConfig.load();
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) provider = config.provider();
-        Object model = modelCombo.isEditable() ? modelCombo.getEditor().getItem() : modelCombo.getSelectedItem();
+        String chosenModel = currentComboText(modelCombo);
         config.setProvider(provider);
-        config.setModel(provider, model == null ? "" : String.valueOf(model));
+        config.setModel(provider, chosenModel);
         config.save();
+        AiConfig requestConfig = config.copy();
         if (provider.requiresKey() && !config.hasKey(provider)) {
             chatCards.show(chatArea, "chat");
             addBubble(false, t("No API key configured. Open Settings and add one."), true);
@@ -700,7 +773,7 @@ public final class AiPanel extends JPanel {
 
         SwingWorker<LoopResult, ProgressEvent> worker = new SwingWorker<>() {
             @Override protected LoopResult doInBackground() throws Exception {
-                return runAiLoop(system, messages, projectAccess, looksLikeChangeRequest(lastPrompt), event -> publish(event),
+                return runAiLoop(requestConfig, system, messages, projectAccess, looksLikeChangeRequest(lastPrompt), event -> publish(event),
                         () -> SwingUtilities.invokeLater(() -> streamArea.setText("")),
                         chunk -> SwingUtilities.invokeLater(() -> {
                             streamArea.append(chunk);
@@ -805,22 +878,22 @@ public final class AiPanel extends JPanel {
         }
     }
 
-    private LoopResult runAiLoop(String system, List<AiMessage> initial, boolean projectAccess, boolean allowFallback,
+    private LoopResult runAiLoop(AiConfig requestConfig, String system, List<AiMessage> initial, boolean projectAccess, boolean allowFallback,
                                  Consumer<ProgressEvent> progress, Runnable clearStream, Consumer<String> stream) throws Exception {
         List<AiMessage> convo = new ArrayList<>(initial);
         int totalRead = 0;
         int validationRounds = 0;
-        int fileBudget = config.tokenBudgetEnabled()
-                ? (int) Math.min(MAX_TOTAL_FILE_CHARS, Math.max(4_000L, (long) config.tokenBudget() * 3L))
+        int fileBudget = requestConfig.tokenBudgetEnabled()
+                ? (int) Math.min(MAX_TOTAL_FILE_CHARS, Math.max(4_000L, (long) requestConfig.tokenBudget() * 3L))
                 : MAX_TOTAL_FILE_CHARS;
         long promptTokens = 0, completionTokens = 0, totalTokens = 0;
         double cost = 0;
         boolean nudged = false;
-        AiProvider usedProvider = config.provider();
-        String usedModel = config.activeModel();
+        AiProvider usedProvider = requestConfig.provider();
+        String usedModel = requestConfig.activeModel();
         for (int round = 0; ; round++) {
             clearStream.run();
-            AiResult result = AiClient.completeStreaming(config, system, convo, stream);
+            AiResult result = AiClient.completeStreaming(requestConfig, system, convo, stream);
             promptTokens += result.promptTokens();
             completionTokens += result.completionTokens();
             totalTokens += result.total();
@@ -897,7 +970,7 @@ public final class AiPanel extends JPanel {
                 convo.add(AiMessage.assistant(answer));
                 convo.add(AiMessage.user("FILE READ LIMIT REACHED. Give the final answer now using the files already provided."));
                 clearStream.run();
-                AiResult last = AiClient.completeStreaming(config, system, convo, stream);
+                AiResult last = AiClient.completeStreaming(requestConfig, system, convo, stream);
                 promptTokens += last.promptTokens();
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();
@@ -929,7 +1002,7 @@ public final class AiPanel extends JPanel {
             if (totalRead >= fileBudget) {
                 convo.add(AiMessage.user("FILE READ LIMIT REACHED. Give the final answer now."));
                 clearStream.run();
-                AiResult last = AiClient.completeStreaming(config, system, convo, stream);
+                AiResult last = AiClient.completeStreaming(requestConfig, system, convo, stream);
                 promptTokens += last.promptTokens();
                 completionTokens += last.completionTokens();
                 totalTokens += last.total();

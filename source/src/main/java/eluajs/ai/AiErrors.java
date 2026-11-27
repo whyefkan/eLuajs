@@ -28,6 +28,10 @@ public final class AiErrors {
         if (lower.contains("unknown host") || lower.contains("connect") || lower.contains("network")) {
             return t("Could not reach the AI provider. Check your internet connection.");
         }
+        if (lower.contains("model_not_found") || lower.contains("model not found")
+                || lower.contains("not found for api version") || (lower.contains("model") && lower.contains("does not exist"))) {
+            return t("Model not found on this provider. Click Refresh Models or choose another model.");
+        }
         if (lower.contains("empty response")) return t("The provider returned an empty response. Retry or choose another model.");
         return raw.length() > 300 ? raw.substring(0, 297) + "…" : raw;
     }
