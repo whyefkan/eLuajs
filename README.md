@@ -67,22 +67,22 @@ All links below always point to the **latest release**.
 
 | Hub | Editor |
 | --- | --- |
-| ![Hub](docs/hub-v160.png) | ![Editor](docs/editor-v160.png) |
+| ![Hub](docs/hub-v164.png) | ![Editor](docs/editor-v164.png) |
 
 <p align="center">
-  <img src="docs/ai-v160.png" alt="eLuajs AI assistant">
+  <img src="docs/ai-v164.png" alt="eLuajs AI assistant">
 </p>
 
 <p align="center">
-  <img src="docs/tools-v160.png" alt="eLuajs project tools">
+  <img src="docs/tools-v164.png" alt="eLuajs project tools">
 </p>
 
 <p align="center">
-  <img src="docs/build-v160.png" alt="eLuajs build output window">
+  <img src="docs/build-v164.png" alt="eLuajs build output window">
 </p>
 
 <p align="center">
-  <img src="docs/output-v160.png" alt="eLuajs output chooser">
+  <img src="docs/output-v164.png" alt="eLuajs output chooser">
 </p>
 
 ## Features
