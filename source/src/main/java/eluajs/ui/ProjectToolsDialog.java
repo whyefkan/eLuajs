@@ -12,7 +12,10 @@ import java.util.function.Supplier;
 
 /** Project tools window: left list, selected tool content on the right. */
 final class ProjectToolsDialog extends JDialog {
-    record Tool(String title, String description, Supplier<JComponent> content) {
+    record Tool(String icon, String title, String description, Supplier<JComponent> content) {
+        Tool(String title, String description, Supplier<JComponent> content) {
+            this("tune", title, description, content);
+        }
         @Override public String toString() { return title; }
     }
 
@@ -44,10 +47,18 @@ final class ProjectToolsDialog extends JDialog {
             @Override public Component getListCellRendererComponent(JList<?> l, Object value, int index,
                     boolean selected, boolean focus) {
                 JLabel label = (JLabel) super.getListCellRendererComponent(l, value, index, selected, false);
-                if (value instanceof Tool tool) label.setText(tool.title());
-                label.setBorder(new EmptyBorder(5, 10, 5, 10));
+                if (value instanceof Tool tool) {
+                    label.setText(tool.title());
+                    label.setIcon(Icons.icon(tool.icon(), selected ? Theme.ACCENT : Theme.MUTED, 16));
+                    label.setIconTextGap(10);
+                    label.setToolTipText(tool.description());
+                }
+                label.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createMatteBorder(0, selected ? 3 : 0, 0, 0, Theme.ACCENT),
+                        new EmptyBorder(5, selected ? 9 : 12, 5, 10)));
                 label.setBackground(selected ? Theme.SELECTION : Theme.PANEL);
-                label.setForeground(Theme.TEXT);
+                label.setForeground(selected ? Theme.TEXT : Theme.TEXT_SOFT);
+                label.setFont(Theme.font(12, selected ? Font.BOLD : Font.PLAIN));
                 return label;
             }
         });

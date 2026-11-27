@@ -34,7 +34,7 @@ public final class BuildDialog extends JDialog {
     private final JTextArea log = new JTextArea();
     private final JCheckBox license = new JCheckBox(t("Android SDK lisans koşullarını kabul ediyorum"));
     private final JButton prepare = Ui.button(t("Araçları Hazırla"), false);
-    private final JButton output = Ui.button("⤓  " + t("Çıktı Al"), true);
+    private final JButton output = Ui.iconButton(t("Çıktı Al"), "run", true);
     private final JButton cancel = Ui.dangerButton(t("Durdur"));
     private final JButton retry = Ui.button(t("Tekrar Dene"), false);
     private final JCheckBox cleanBuild = new JCheckBox(t("Temiz derleme"));
@@ -122,7 +122,8 @@ public final class BuildDialog extends JDialog {
         JLabel subtitle = Ui.label(t("Debug APK test içindir. Play Store AAB ise upload keystore ile imzalı release çıktısı üretir."), 12, Font.PLAIN, Theme.MUTED);
         subtitle.setAlignmentX(Component.LEFT_ALIGNMENT);
         top.add(subtitle);
-        JPanel statusCard = Ui.flatCard(new BorderLayout(0, 8));
+        top.add(Box.createVerticalStrut(12));
+        JPanel statusCard = Ui.flatCard(new BorderLayout(0, 10));
         statusCard.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusCard.setBorder(new EmptyBorder(12, 15, 12, 15));
         statusCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 158));
@@ -211,9 +212,9 @@ public final class BuildDialog extends JDialog {
         progress.setBorderPainted(false);
         footer.add(progress, BorderLayout.CENTER);
 
-        JButton more = Ui.button("⋯  " + t("Daha Fazla"), false);
-        more.setFont(Theme.font(10, Font.BOLD));
-        more.setBorder(new EmptyBorder(4, 8, 4, 8));
+        JButton more = Ui.iconButton(t("Daha Fazla"), "tune", false);
+        more.setFont(Theme.font(11, Font.BOLD));
+        more.setBorder(new EmptyBorder(7, 11, 7, 11));
         JPopupMenu moreMenu = new JPopupMenu();
         JMenuItem prepareItem = new JMenuItem(t("Araçları Hazırla"));
         prepareItem.addActionListener(e -> prepareSdk());
@@ -291,14 +292,14 @@ public final class BuildDialog extends JDialog {
     }
 
     private JPanel statusChip(String name, JLabel status) {
-        JPanel p = new JPanel(new BorderLayout(6, 0));
-        p.setOpaque(false);
+        JPanel p = Ui.softCard(new BorderLayout(8, 0));
+        p.setBorder(new EmptyBorder(7, 10, 7, 10));
         p.add(Ui.label(name, 11, Font.PLAIN, Theme.TEXT_SOFT), BorderLayout.WEST);
         p.add(status, BorderLayout.EAST);
         return p;
     }
 
-    private static JLabel statusLabel() { return Ui.label(t("Kontrol..."), 12, Font.BOLD, Theme.MUTED); }
+    private static JLabel statusLabel() { return Ui.label(t("Kontrol..."), 11, Font.BOLD, Theme.MUTED); }
 
     private void refreshStatuses() {
         setStatus(javaStatus, ToolchainManager.javaReady());

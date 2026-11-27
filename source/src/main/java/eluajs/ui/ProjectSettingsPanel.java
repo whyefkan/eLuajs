@@ -52,13 +52,8 @@ final class ProjectSettingsPanel extends JPanel {
         addRow(appBody, t("Sürüm adı"), versionName);
         addRow(appBody, t("Sürüm kodu"), versionCode);
         Ui.styleSpinner(versionCode);
-        JPanel ids = new JPanel(new GridLayout(2, 2, 10, 6));
-        ids.setOpaque(false);
-        ids.add(Ui.label(t("Application ID"), 10, Font.PLAIN, Theme.MUTED));
-        ids.add(applicationId);
-        ids.add(Ui.label(t("Namespace"), 10, Font.PLAIN, Theme.MUTED));
-        ids.add(namespace);
-        appBody.add(ids);
+        addStaticRow(appBody, t("Application ID"), applicationId);
+        addStaticRow(appBody, t("Namespace"), namespace);
         app.add(appBody, BorderLayout.CENTER);
         page.add(app);
         page.add(Box.createVerticalStrut(12));
@@ -83,19 +78,22 @@ final class ProjectSettingsPanel extends JPanel {
         JPanel gradleBody = new JPanel();
         gradleBody.setOpaque(false);
         gradleBody.setLayout(new BoxLayout(gradleBody, BoxLayout.Y_AXIS));
+        JPanel checksGrid = new JPanel(new GridLayout(2, 2, 12, 6));
+        checksGrid.setOpaque(false);
+        checksGrid.setAlignmentX(Component.LEFT_ALIGNMENT);
         for (JCheckBox box : new JCheckBox[]{parallel, caching, daemon, configurationCache}) {
             box.setOpaque(false);
             box.setForeground(Theme.TEXT_SOFT);
             box.setFont(Theme.font(12, Font.PLAIN));
             box.setFocusPainted(false);
-            box.setAlignmentX(Component.LEFT_ALIGNMENT);
-            gradleBody.add(box);
-            gradleBody.add(Box.createVerticalStrut(3));
+            checksGrid.add(box);
         }
-        gradleBody.add(Box.createVerticalStrut(5));
+        gradleBody.add(checksGrid);
+        gradleBody.add(Box.createVerticalStrut(10));
         JLabel jvmLabel = Ui.label(t("JVM argümanları"), 10, Font.PLAIN, Theme.MUTED);
         jvmLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         gradleBody.add(jvmLabel);
+        gradleBody.add(Box.createVerticalStrut(4));
         jvmArgs.setAlignmentX(Component.LEFT_ALIGNMENT);
         jvmArgs.setMaximumSize(new Dimension(Integer.MAX_VALUE, 38));
         gradleBody.add(jvmArgs);
@@ -110,9 +108,9 @@ final class ProjectSettingsPanel extends JPanel {
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         footer.setOpaque(false);
         footer.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JButton reload = Ui.button(t("Yenile"), false);
+        JButton reload = Ui.iconButton(t("Yenile"), "refresh", false);
         reload.addActionListener(e -> load());
-        JButton save = Ui.button(t("Kaydet"), true);
+        JButton save = Ui.iconButton(t("Kaydet"), "save", true);
         save.addActionListener(e -> save());
         footer.add(reload);
         footer.add(save);
@@ -146,6 +144,19 @@ final class ProjectSettingsPanel extends JPanel {
         row.add(field, BorderLayout.CENTER);
         parent.add(row);
         parent.add(Box.createVerticalStrut(7));
+    }
+
+    private void addStaticRow(JPanel parent, String label, JLabel value) {
+        JPanel row = new JPanel(new BorderLayout(10, 0));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+        JLabel name = Ui.label(label, 10, Font.PLAIN, Theme.MUTED);
+        name.setPreferredSize(new Dimension(130, 22));
+        row.add(name, BorderLayout.WEST);
+        row.add(value, BorderLayout.CENTER);
+        parent.add(row);
+        parent.add(Box.createVerticalStrut(4));
     }
 
     private void load() {

@@ -125,7 +125,7 @@ public final class SettingsDialog extends JDialog {
         generalButton.addActionListener(e -> showCategory("general", generalButton));
         aiButton = new CategoryButton("ai", t("AI Providers"));
         aiButton.addActionListener(e -> showCategory("ai", aiButton));
-        updateButton = new CategoryButton("refresh", t("Updates"));
+        updateButton = new CategoryButton("update", t("Updates"));
         updateButton.addActionListener(e -> showCategory("updates", updateButton));
         list.add(generalButton);
         list.add(Box.createVerticalStrut(3));
@@ -323,8 +323,9 @@ public final class SettingsDialog extends JDialog {
         modelCombo.setEditable(true);
         styleComboEditor(modelCombo);
         modelCombo.setToolTipText(t("You can type any model supported by the provider."));
-        JButton refreshModels = Ui.button(t("Modelleri Yenile"), false);
+        JButton refreshModels = Ui.iconButton(t("Modelleri Yenile"), "refresh", false);
         refreshModels.setFont(Theme.font(10, Font.BOLD));
+        refreshModels.setBorder(new EmptyBorder(6, 10, 6, 10));
         refreshModels.addActionListener(e -> refreshModels(refreshModels));
         baseUrl.setToolTipText(t("Base URL (optional)"));
         showKey.setOpaque(false);
@@ -375,9 +376,9 @@ public final class SettingsDialog extends JDialog {
         keyRow.add(apiKey, BorderLayout.CENTER);
         JPanel keyTools = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         keyTools.setOpaque(false);
-        JButton test = Ui.button(t("Test connection"), false);
+        JButton test = Ui.iconButton(t("Test connection"), "bolt", false);
         test.setFont(Theme.font(10, Font.BOLD));
-        test.setBorder(new EmptyBorder(6, 8, 6, 8));
+        test.setBorder(new EmptyBorder(6, 10, 6, 10));
         test.addActionListener(e -> testConnection(test));
         keyTools.add(showKey);
         keyTools.add(test);

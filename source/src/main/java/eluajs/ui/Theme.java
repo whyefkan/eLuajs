@@ -267,6 +267,9 @@ public final class Theme {
         UIManager.put("Tree.selectionForeground", TEXT);
         UIManager.put("Tree.selectionBorderColor", SELECTION);
         UIManager.put("Tree.hash", BORDER_SOFT);
+        UIManager.put("Tree.expandedIcon", new TreeChevronIcon(true));
+        UIManager.put("Tree.collapsedIcon", new TreeChevronIcon(false));
+        UIManager.put("Tree.paintLines", Boolean.FALSE);
 
         UIManager.put("List.background", PANEL);
         UIManager.put("List.foreground", TEXT);
@@ -288,6 +291,7 @@ public final class Theme {
 
         UIManager.put("CheckBox.background", BG);
         UIManager.put("CheckBox.foreground", MUTED);
+        UIManager.put("CheckBox.icon", new FlatCheckBoxIcon());
         UIManager.put("Spinner.background", PANEL_2);
         UIManager.put("Spinner.foreground", TEXT);
         UIManager.put("ScrollPane.border", BorderFactory.createEmptyBorder());
@@ -442,5 +446,61 @@ public final class Theme {
             return scrollbar.getOrientation() == JScrollBar.VERTICAL
                     ? new Dimension(9, 48) : new Dimension(48, 9);
         }
+    }
+
+    /** Crisp VS Code-style tree chevron replacing default Metal circles. */
+    private static final class TreeChevronIcon implements Icon {
+        private final boolean expanded;
+        TreeChevronIcon(boolean expanded) { this.expanded = expanded; }
+        @Override public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(Theme.MUTED);
+            g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            Path2D.Float p = new Path2D.Float();
+            if (expanded) {
+                p.moveTo(x + 2.5f, y + 4f);
+                p.lineTo(x + 6f, y + 7.5f);
+                p.lineTo(x + 9.5f, y + 4f);
+            } else {
+                p.moveTo(x + 4f, y + 2.5f);
+                p.lineTo(x + 7.5f, y + 6f);
+                p.lineTo(x + 4f, y + 9.5f);
+            }
+            g2.draw(p);
+            g2.dispose();
+        }
+        @Override public int getIconWidth() { return 12; }
+        @Override public int getIconHeight() { return 12; }
+    }
+
+    /** Flat rounded checkbox icon matching the dark/light/black eLuajs palette. */
+    private static final class FlatCheckBoxIcon implements Icon {
+        @Override public void paintIcon(Component c, Graphics g, int x, int y) {
+            if (!(c instanceof AbstractButton b)) return;
+            ButtonModel m = b.getModel();
+            boolean selected = m.isSelected();
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (selected) {
+                g2.setColor(b.isEnabled() ? Theme.ACCENT : Theme.MUTED);
+                g2.fillRoundRect(x + 1, y + 1, 14, 14, 4, 4);
+                g2.setColor(Theme.isLight() ? Color.WHITE : new Color(5, 34, 26));
+                g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                Path2D.Float ck = new Path2D.Float();
+                ck.moveTo(x + 4.3f, y + 8.2f);
+                ck.lineTo(x + 6.9f, y + 10.8f);
+                ck.lineTo(x + 11.7f, y + 5.3f);
+                g2.draw(ck);
+            } else {
+                g2.setColor(m.isRollover() ? Theme.PANEL_HOVER : Theme.PANEL_2);
+                g2.fillRoundRect(x + 1, y + 1, 14, 14, 4, 4);
+                g2.setColor(m.isRollover() ? Theme.ACCENT : Theme.BORDER);
+                g2.drawRoundRect(x + 1, y + 1, 13, 13, 4, 4);
+            }
+            g2.dispose();
+        }
+        @Override public int getIconWidth() { return 16; }
+        @Override public int getIconHeight() { return 16; }
     }
 }

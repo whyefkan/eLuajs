@@ -172,9 +172,10 @@ public final class EditorFrame extends JFrame {
 
         JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         brand.setOpaque(false);
-        JButton back = compact("←", t("Projeler ekranına dön"));
-        back.setFont(Theme.font(13, Font.BOLD));
-        back.setBorder(new EmptyBorder(5, 10, 5, 10));
+        JButton back = Ui.button("", false);
+        back.setIcon(Icons.icon("arrow-left", Theme.TEXT_SOFT, 15));
+        back.setToolTipText(t("Projeler ekranına dön"));
+        back.setBorder(new EmptyBorder(7, 9, 7, 9));
         back.addActionListener(e -> confirmClose());
         brand.add(back);
 
@@ -184,7 +185,7 @@ public final class EditorFrame extends JFrame {
         name.setOpaque(false);
         name.setLayout(new BoxLayout(name, BoxLayout.Y_AXIS));
         name.add(Ui.label(meta.appName(), 14, Font.BOLD, Theme.TEXT));
-        name.add(Box.createVerticalStrut(5));
+        name.add(Box.createVerticalStrut(1));
         name.add(Ui.label(meta.packageName(), 10, Font.PLAIN, Theme.MUTED));
         brand.add(name);
         brand.add(Ui.badge("v" + HubFrame.VERSION, Theme.ACCENT));
@@ -243,7 +244,7 @@ public final class EditorFrame extends JFrame {
         pagesActivity = Ui.activityButton("pages", t("Sayfalar"), () -> showSidebar("pages"));
         bar.add(pagesActivity);
         bar.add(Box.createVerticalStrut(4));
-        outlineActivity = Ui.activityButton("search", t("Outline"), () -> showSidebar("outline"));
+        outlineActivity = Ui.activityButton("outline", t("Outline"), () -> showSidebar("outline"));
         bar.add(outlineActivity);
         bar.add(Box.createVerticalStrut(14));
 
@@ -263,40 +264,43 @@ public final class EditorFrame extends JFrame {
         return bar;
     }
 
+    private JPanel sidebarActionsBar;
+
     private JComponent sidebar() {
         JPanel side = new JPanel(new BorderLayout());
         side.setBackground(Theme.PANEL);
-        side.setPreferredSize(new Dimension(292, 1));
+        side.setPreferredSize(new Dimension(276, 1));
         side.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, Theme.BORDER_SOFT));
 
         JPanel head = new JPanel(new BorderLayout(8, 0));
         head.setBackground(Theme.PANEL);
-        head.setBorder(new EmptyBorder(14, 16, 10, 16));
+        head.setBorder(new EmptyBorder(12, 14, 8, 12));
         head.add(sidebarTitle, BorderLayout.WEST);
-        side.add(head, BorderLayout.NORTH);
 
-        JPanel actions = new JPanel(new GridLayout(3, 2, 9, 9));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         actions.setBackground(Theme.PANEL);
-        actions.setBorder(new EmptyBorder(0, 14, 12, 14));
-        JButton addFile = compact("＋ " + t("Dosya"), t("Yeni dosya oluştur"));
+        actions.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(0, 10, 8, 10)));
+        JButton addFile = sidebarToolIcon("file-plus", Theme.TEXT_SOFT, t("Yeni dosya oluştur"));
         addFile.addActionListener(e -> newTreeFile(treeTarget()));
-        JButton addFolder = compact("＋ " + t("Klasör"), t("Yeni klasör oluştur"));
+        JButton addFolder = sidebarToolIcon("folder-plus", Theme.TEXT_SOFT, t("Yeni klasör oluştur"));
         addFolder.addActionListener(e -> newTreeFolder(treeTarget()));
-        JButton addPage = compact("＋ " + t("Sayfa"), t("Yeni Android Activity / ekran oluştur"));
-        addPage.addActionListener(e -> newActivity());
-        JButton delPage = compact("− " + t("Sayfa"), t("Ek Android Activity / sayfayı sil"));
-        delPage.setForeground(Theme.DANGER);
-        delPage.addActionListener(e -> deleteActivity());
-        JButton addClass = compact("＋ " + t("Sınıf"), t("Activity olmayan normal Java sınıfı oluştur (Ctrl+Shift+N)"));
+        JButton addClass = sidebarToolIcon("class", Theme.BLUE, t("Activity olmayan normal Java sınıfı oluştur (Ctrl+Shift+N)"));
         addClass.addActionListener(e -> newJavaClass());
-        JButton refreshTree = compact("⟳ " + t("Yenile"), t("Dosya ağacını yenile"));
+        JButton addPage = sidebarToolIcon("page-plus", Theme.ACCENT, t("Yeni Android Activity / ekran oluştur"));
+        addPage.addActionListener(e -> newActivity());
+        JButton delPage = sidebarToolIcon("page-minus", Theme.DANGER, t("Ek Android Activity / sayfayı sil"));
+        delPage.addActionListener(e -> deleteActivity());
+        JButton refreshTree = sidebarToolIcon("refresh", Theme.TEXT_SOFT, t("Dosya ağacını yenile"));
         refreshTree.addActionListener(e -> reloadTree());
         actions.add(addFile);
         actions.add(addFolder);
+        actions.add(addClass);
         actions.add(addPage);
         actions.add(delPage);
-        actions.add(addClass);
         actions.add(refreshTree);
+        sidebarActionsBar = actions;
 
         JPanel top = new JPanel(new BorderLayout());
         top.setBackground(Theme.PANEL);
@@ -313,6 +317,14 @@ public final class EditorFrame extends JFrame {
         return side;
     }
 
+    private JButton sidebarToolIcon(String iconName, Color color, String tooltip) {
+        JButton b = Ui.button("", false);
+        b.setIcon(Icons.icon(iconName, color, 14));
+        b.setToolTipText(tooltip);
+        b.setBorder(new EmptyBorder(6, 7, 6, 7));
+        return b;
+    }
+
     private JComponent outlinePanel() {
         outlineList.setBackground(Theme.PANEL);
         outlineList.setForeground(Theme.TEXT);
@@ -324,7 +336,20 @@ public final class EditorFrame extends JFrame {
             @Override public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                     boolean selected, boolean focus) {
                 JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, selected, false);
-                if (value instanceof OutlineEntry entry) label.setText(entry.label());
+                if (value instanceof OutlineEntry entry) {
+                    String text = entry.label();
+                    label.setText(text);
+                    if (text.startsWith("#")) {
+                        label.setIcon(Icons.icon("tag", Theme.BLUE, 13));
+                    } else if (!text.isEmpty() && Character.isUpperCase(text.charAt(0)) && !text.contains(" ")) {
+                        label.setIcon(Icons.icon("class", Theme.WARNING, 13));
+                    } else if (!text.contains(" ")) {
+                        label.setIcon(Icons.icon("method", Theme.ACCENT, 13));
+                    } else {
+                        label.setIcon(Icons.icon("outline", Theme.MUTED, 13));
+                    }
+                    label.setIconTextGap(7);
+                }
                 label.setBorder(new EmptyBorder(3, 10, 3, 6));
                 label.setBackground(selected ? Theme.SELECTION : Theme.PANEL);
                 label.setForeground(Theme.TEXT);
@@ -382,10 +407,11 @@ public final class EditorFrame extends JFrame {
     private JComponent filesPanel() {
         tree.setRootVisible(true);
         tree.setShowsRootHandles(true);
+        tree.putClientProperty("JTree.lineStyle", "None");
         tree.setBackground(Theme.PANEL);
         tree.setForeground(Theme.TEXT);
         tree.setFont(Theme.font(13, Font.PLAIN));
-        tree.setRowHeight(27);
+        tree.setRowHeight(26);
         tree.setCellRenderer(new DarkTreeRenderer());
         tree.setBorder(new EmptyBorder(8, 10, 12, 10));
         tree.addTreeSelectionListener(this::treeSelection);
@@ -423,6 +449,7 @@ public final class EditorFrame extends JFrame {
         if (filesActivity != null) filesActivity.setActive(files);
         if (pagesActivity != null) pagesActivity.setActive(pages);
         if (outlineActivity != null) outlineActivity.setActive(outline);
+        if (sidebarActionsBar != null) sidebarActionsBar.setVisible(!outline);
         if (outline) refreshOutline();
     }
 
@@ -548,7 +575,6 @@ public final class EditorFrame extends JFrame {
             }
         });
         pathBar.add(breadcrumb, BorderLayout.WEST);
-        pathBar.add(currentFile, BorderLayout.EAST);
         editorHead.add(pathBar, BorderLayout.NORTH);
         editorHead.add(editorSplit, BorderLayout.CENTER);
 
@@ -582,9 +608,9 @@ public final class EditorFrame extends JFrame {
                 BorderFactory.createMatteBorder(1, 0, 1, 0, Theme.BORDER_SOFT),
                 new EmptyBorder(0, 6, 0, 8)));
         bottomTabs.setOpaque(false);
-        bottomTabs.add(tabButton("output", t("ÇIKTI")));
-        bottomTabs.add(tabButton("problems", t("SORUNLAR")));
-        bottomTabs.add(tabButton("search", t("ARAMA")));
+        bottomTabs.add(tabButton("output", "terminal", t("ÇIKTI")));
+        bottomTabs.add(tabButton("problems", "alert", t("SORUNLAR")));
+        bottomTabs.add(tabButton("search", "search", t("ARAMA")));
         head.add(bottomTabs, BorderLayout.WEST);
         JButton clear = compact(t("Temizle"), t("Çıktıyı temizle"));
         clear.addActionListener(e -> clearActiveBottom());
@@ -600,8 +626,11 @@ public final class EditorFrame extends JFrame {
         return wrap;
     }
 
-    private JButton tabButton(String key, String label) {
+    private JButton tabButton(String key, String iconName, String label) {
         JButton button = new JButton(label);
+        button.putClientProperty("tabIcon", iconName);
+        button.setIcon(Icons.icon(iconName, Theme.MUTED, 13));
+        button.setIconTextGap(6);
         button.setFont(Theme.font(10, Font.BOLD));
         button.setOpaque(true);
         button.setContentAreaFilled(true);
@@ -624,6 +653,10 @@ public final class EditorFrame extends JFrame {
             JButton button = entry.getValue();
             button.setBackground(active ? Theme.TAB_ACTIVE : Theme.TAB_BAR);
             button.setForeground(active ? Theme.TEXT : Theme.MUTED);
+            Object iconName = button.getClientProperty("tabIcon");
+            if (iconName instanceof String icon) {
+                button.setIcon(Icons.icon(icon, active ? Theme.ACCENT : Theme.MUTED, 13));
+            }
             button.setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createMatteBorder(0, 0, 2, 0, active ? Theme.ACCENT : Theme.TAB_BAR),
                     new EmptyBorder(8, 12, 6, 12)));
@@ -1083,6 +1116,8 @@ public final class EditorFrame extends JFrame {
         header.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         tab.header = header;
         tab.titleLabel = Ui.label("", 12, Font.PLAIN, Theme.MUTED);
+        tab.titleLabel.setIcon(Icons.fileIcon(tab.file, false, false));
+        tab.titleLabel.setIconTextGap(6);
         tab.titleLabel.setBorder(new EmptyBorder(4, 2, 4, 0));
         tab.titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         JButton close = new JButton("×");
@@ -1376,17 +1411,7 @@ public final class EditorFrame extends JFrame {
             scroll.setRowHeaderView(new LineNumberView(pane));
             if (scroll.getRowHeader() != null) scroll.getRowHeader().setBackground(Theme.EDITOR);
             setBackground(Theme.EDITOR);
-            JPanel body = new JPanel(new BorderLayout());
-            body.setBackground(Theme.EDITOR);
-            JPanel crumb = new JPanel(new BorderLayout());
-            crumb.setBackground(Theme.EDITOR);
-            crumb.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
-                    new EmptyBorder(4, 14, 4, 12)));
-            crumb.add(Ui.label(relative(this.file), 10, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
-            body.add(crumb, BorderLayout.NORTH);
-            body.add(scroll, BorderLayout.CENTER);
-            add(body, BorderLayout.CENTER);
+            add(scroll, BorderLayout.CENTER);
         }
     }
 
@@ -1547,47 +1572,47 @@ public final class EditorFrame extends JFrame {
             return;
         }
         toolsDialog = new ProjectToolsDialog(this, java.util.List.of(
-                new ProjectToolsDialog.Tool(t("Proje Ayarları"), t("SDK, sürüm ve Gradle ayarları"),
+                new ProjectToolsDialog.Tool("tune", t("Proje Ayarları"), t("SDK, sürüm ve Gradle ayarları"),
                         () -> new ProjectSettingsPanel(meta.rootDir(), () -> {
                             appendConsole(t("Proje ayarları kaydedildi."));
                             reloadTree();
                         })),
-                new ProjectToolsDialog.Tool(t("Proje Sağlığı"), t("JDK, SDK, Gradle ve proje yapısı"),
+                new ProjectToolsDialog.Tool("heart", t("Proje Sağlığı"), t("JDK, SDK, Gradle ve proje yapısı"),
                         () -> ProjectToolsPanels.health(meta.rootDir())),
-                new ProjectToolsDialog.Tool(t("Proje Checkpoint'leri"), t("Projeyi anlık görüntüle ve geri yükle"),
+                new ProjectToolsDialog.Tool("checkpoint", t("Proje Checkpoint'leri"), t("Projeyi anlık görüntüle ve geri yükle"),
                         () -> ProjectToolsPanels.checkpoints(meta.rootDir(), this::reloadTree)),
-                new ProjectToolsDialog.Tool(t("Erişilebilirlik Denetçisi"), t("XML layout erişilebilirlik sorunları"),
+                new ProjectToolsDialog.Tool("accessibility", t("Erişilebilirlik Denetçisi"), t("XML layout erişilebilirlik sorunları"),
                         () -> ProjectToolsPanels.accessibility(meta.rootDir(), this::openFileAtLine)),
-                new ProjectToolsDialog.Tool(t("Proje Notları"), t("Proje bazlı Markdown notları"),
+                new ProjectToolsDialog.Tool("notes", t("Proje Notları"), t("Proje bazlı Markdown notları"),
                         () -> ProjectToolsPanels.notes(meta.rootDir())),
-                new ProjectToolsDialog.Tool(t("Referans Haritası"), t("Sınıf, layout ve string kullanımlarını bul"),
+                new ProjectToolsDialog.Tool("link", t("Referans Haritası"), t("Sınıf, layout ve string kullanımlarını bul"),
                         () -> ProjectToolsPanels.references(meta.rootDir(), this::openFileAtLine)),
-                new ProjectToolsDialog.Tool(t("Çeviri Durumu"), t("Locale dosyalarındaki eksik çeviriler"),
+                new ProjectToolsDialog.Tool("globe", t("Çeviri Durumu"), t("Locale dosyalarındaki eksik çeviriler"),
                         () -> ProjectToolsPanels.localization(meta.rootDir())),
-                new ProjectToolsDialog.Tool(t("Assets"), t("Görsel, ses ve font ekle"),
+                new ProjectToolsDialog.Tool("assets", t("Assets"), t("Görsel, ses ve font ekle"),
                         () -> ManagerPanels.assets(meta.rootDir(), () -> {
                             reloadTree();
                             appendConsole(t("Asset ağacı yenilendi."));
                         })),
-                new ProjectToolsDialog.Tool(t("Gradle Kütüphaneleri"), t("Bağımlılıkları yönet"),
+                new ProjectToolsDialog.Tool("package", t("Gradle Kütüphaneleri"), t("Bağımlılıkları yönet"),
                         () -> ManagerPanels.libraries(meta.rootDir(), () -> {
                             reloadTree();
                             appendConsole(t("Gradle kütüphaneleri güncellendi."));
                         }, this::openFile)),
-                new ProjectToolsDialog.Tool(t("Android İzinleri"), t("Manifest izinlerini düzenle"),
+                new ProjectToolsDialog.Tool("shield", t("Android İzinleri"), t("Manifest izinlerini düzenle"),
                         () -> ManagerPanels.permissions(meta.rootDir(), () -> {
                             reloadTree();
                             appendConsole(t("Android izinleri güncellendi."));
                         }, this::openFile)),
-                new ProjectToolsDialog.Tool(t("Cihazlar ve Logcat"), t("ADB cihazları, APK yükleme ve logcat"),
+                new ProjectToolsDialog.Tool("device", t("Cihazlar ve Logcat"), t("ADB cihazları, APK yükleme ve logcat"),
                         () -> ProjectToolsPanels.action(t("Cihazlar ve Logcat"), t("Bağlı cihazları, APK yüklemeyi ve logcat çıktısını yönetin."), t("Cihazları Yönet"), () -> new DeviceDialog(this, meta.rootDir(), null).setVisible(true))),
-                new ProjectToolsDialog.Tool(t("Çoklu Cihaza Yükle"), t("Aynı APK'yı seçili cihazlara kur"),
+                new ProjectToolsDialog.Tool("devices", t("Çoklu Cihaza Yükle"), t("Aynı APK'yı seçili cihazlara kur"),
                         () -> ProjectToolsPanels.action(t("Çoklu Cihaza Yükle"), t("Aynı APK'yı birden fazla bağlı cihaza kurun."), t("APK Yükle"), () -> new BatchInstallDialog(this).setVisible(true))),
-                new ProjectToolsDialog.Tool(t("APK / AAB Diff"), t("İki çıktı arasındaki dosya ve boyut farkları"),
+                new ProjectToolsDialog.Tool("diff", t("APK / AAB Diff"), t("İki çıktı arasındaki dosya ve boyut farkları"),
                         () -> ProjectToolsPanels.artifactDiff(meta.rootDir())),
-                new ProjectToolsDialog.Tool(t("Sürüm Notları"), t("VersionCode artır ve Git geçmişinden not üret"),
+                new ProjectToolsDialog.Tool("release", t("Sürüm Notları"), t("VersionCode artır ve Git geçmişinden not üret"),
                         () -> ProjectToolsPanels.releaseNotes(meta.rootDir())),
-                new ProjectToolsDialog.Tool(t("Focus Mode"), t("Kenar çubuklarını gizleyerek sadece koda odaklan"),
+                new ProjectToolsDialog.Tool("focus", t("Focus Mode"), t("Kenar çubuklarını gizleyerek sadece koda odaklan"),
                         () -> ProjectToolsPanels.focus(() -> focusMode, this::toggleFocusMode))
         ));
         toolsDialog.addWindowListener(new java.awt.event.WindowAdapter() {

@@ -47,6 +47,8 @@ import static eluajs.util.I18n.t;
 public final class AiPanel extends JPanel {
     private static final Pattern CODE_BLOCK = Pattern.compile(
             "(?s)```[ \\t]*[A-Za-z0-9_+.#-]*[ \\t]*\\R(.*?)```");
+    private static final Pattern FENCED_SEGMENT = Pattern.compile(
+            "(?s)```[ \\t]*([A-Za-z0-9_+.#-]*)[ \\t]*\\R(.*?)```");
     private static final Pattern WRITE_BLOCK = Pattern.compile(
             "(?ms)^[ \\t]*WRITE:[ \\t]*(.+?)[ \\t]*\\R[ \\t]*```[^\\n]*\\R(.*?)```[ \\t]*");
     private static final Pattern PATCH_BLOCK = Pattern.compile(
@@ -100,8 +102,8 @@ public final class AiPanel extends JPanel {
     private static final int MAX_SEARCH_RESULTS = 60;
     private static final int MAX_CONTEXT_CHARS = 100_000;
     private static final int MAX_VALIDATION_ROUNDS = 2;
-    private static final int AI_TEXT_WIDTH = 320;
-    private static final int USER_TEXT_WIDTH = 260;
+    private static final int AI_TEXT_WIDTH = 356;
+    private static final int USER_TEXT_WIDTH = 286;
 
     private final Supplier<SyntaxEditorPane> editorProvider;
     private final Supplier<String> fileLabel;
@@ -129,18 +131,20 @@ public final class AiPanel extends JPanel {
     private SwingWorker<LoopResult, ProgressEvent> activeWorker;
     private String failedPrompt;
 
-    private final JTextArea prompt = new JTextArea();
-    private final JPanel conversation = new JPanel();
+    private final PlaceholderTextArea prompt = new PlaceholderTextArea(t("Ask eLuajs AI… (/fix, /explain, /review)"));
+    private final ScrollableChatPanel conversation = new ScrollableChatPanel();
     private final JScrollPane conversationScroll;
     private final CardLayout chatCards = new CardLayout();
     private final JPanel chatArea = new JPanel(chatCards);
     private final JComboBox<AiProvider> providerCombo = new JComboBox<>(AiProvider.values());
     private final JComboBox<String> modelCombo = new JComboBox<>();
+    private final JLabel headerModel = Ui.label("", 9, Font.PLAIN, Theme.MUTED);
+    private final StatusDot statusDot = new StatusDot();
     private final JLabel status = Ui.label("", 10, Font.PLAIN, Theme.MUTED);
     private final JLabel usageLabel = Ui.label("", 9, Font.PLAIN, Theme.MUTED);
     private final WorkingIndicator working = new WorkingIndicator();
     private final JButton send = Ui.button("", true);
-    private final JButton stop = Ui.button(t("Durdur"), false);
+    private final JButton stop = Ui.dangerButton("");
     private final JButton retry = Ui.button(t("Tekrar Dene"), false);
     private final JButton undoEdits = iconOnly("undo", t("Undo AI edits"));
     private final JButton copyAnswer = iconOnly("copy", t("Copy last answer"));
@@ -175,14 +179,16 @@ public final class AiPanel extends JPanel {
         this.afterFilesChanged = afterFilesChanged;
         this.openFile = openFile;
         setBackground(Theme.PANEL);
-        setPreferredSize(new Dimension(400, 1));
+        setPreferredSize(new Dimension(436, 1));
+        setMinimumSize(new Dimension(340, 1));
         setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, Theme.BORDER_SOFT));
 
         conversation.setLayout(new BoxLayout(conversation, BoxLayout.Y_AXIS));
         conversation.setBackground(Theme.CONSOLE);
-        conversation.setBorder(new EmptyBorder(10, 12, 10, 12));
+        conversation.setBorder(new EmptyBorder(12, 12, 12, 12));
         conversationScroll = Ui.scroll(conversation);
         conversationScroll.setBorder(null);
+        conversationScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         conversationScroll.getViewport().setBackground(Theme.CONSOLE);
         conversationScroll.getVerticalScrollBar().setUnitIncrement(18);
 
@@ -200,10 +206,10 @@ public final class AiPanel extends JPanel {
     private void pinCurrent(JButton button) {
         Path file = currentFile == null ? null : currentFile.get();
         if (file == null) return;
-        if (pinned.remove(file)) addSystemNote(t("Unpinned: %s", file.getFileName()));
+        if (pinned.remove(file)) addSystemNote("pin", Theme.MUTED, t("Unpinned: %s", file.getFileName()));
         else if (pinned.size() < 6) {
             pinned.add(file);
-            addSystemNote(t("Pinned: %s", file.getFileName()));
+            addSystemNote("pin", Theme.ACCENT, t("Pinned: %s", file.getFileName()));
         }
         refreshPinState();
     }
@@ -212,8 +218,7 @@ public final class AiPanel extends JPanel {
         if (pinButton == null) return;
         Path file = currentFile == null ? null : currentFile.get();
         boolean on = file != null && pinned.contains(file);
-        pinButton.setForeground(on ? Theme.ACCENT : Theme.MUTED);
-        pinButton.setText(on ? t("Pinned") : t("Pin"));
+        pinButton.setIcon(Icons.icon("pin", on ? Theme.ACCENT : Theme.TEXT_SOFT, 14));
         pinButton.setToolTipText(on ? t("Bu dosyayı sabit context'ten çıkar") : t("Sabit context: geçerli dosyayı AI'ya ekle"));
     }
 
@@ -222,38 +227,43 @@ public final class AiPanel extends JPanel {
         root.setBackground(Theme.PANEL);
         root.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
-                new EmptyBorder(8, 12, 8, 8)));
+                new EmptyBorder(9, 12, 9, 10)));
 
-        JPanel titleText = new JPanel(new FlowLayout(FlowLayout.LEFT, 7, 0));
-        titleText.setOpaque(false);
-        titleText.add(Ui.label("✦", 13, Font.PLAIN, Theme.ACCENT));
-        titleText.add(Ui.label(t("AI Assistant"), 14, Font.BOLD, Theme.TEXT));
-        root.add(titleText, BorderLayout.WEST);
+        JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
+        brand.setOpaque(false);
+        brand.add(new IconBadge("ai", Theme.ACCENT, 28, 15));
+        JPanel titleStack = new JPanel();
+        titleStack.setOpaque(false);
+        titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
+        JLabel title = Ui.label(t("AI Assistant"), 13, Font.BOLD, Theme.TEXT);
+        title.setAlignmentX(Component.LEFT_ALIGNMENT);
+        headerModel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        titleStack.add(title);
+        titleStack.add(headerModel);
+        brand.add(titleStack);
+        root.add(Ui.centerVertically(brand), BorderLayout.WEST);
 
-        JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 3, 0));
+        JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
         tools.setOpaque(false);
         undoEdits.setEnabled(false);
         undoEdits.addActionListener(e -> undoAiEdits());
         JButton history = iconOnly("history", t("Chat history"));
         history.addActionListener(e -> showHistory(history));
-        pinButton = Ui.button(t("Pin"), false);
-        pinButton.setFont(Theme.font(9, Font.BOLD));
-        pinButton.setBorder(new EmptyBorder(4, 6, 4, 6));
-        pinButton.setToolTipText(t("Sabit context: geçerli dosyayı AI'ya ekle"));
+        pinButton = iconOnly("pin", t("Sabit context: geçerli dosyayı AI'ya ekle"));
         pinButton.addActionListener(e -> pinCurrent(pinButton));
-        tools.add(pinButton);
-        JButton clear = iconOnly("plus", t("New chat"));
+        JButton clear = iconOnly("chat-plus", t("New chat"));
         clear.addActionListener(e -> newChat());
         JButton close = iconOnly("close", t("Close"));
         close.addActionListener(e -> { if (onClose != null) onClose.run(); });
-        tools.add(history);
         copyAnswer.setEnabled(false);
         copyAnswer.addActionListener(e -> copyLastAnswer());
+        tools.add(pinButton);
+        tools.add(history);
         tools.add(copyAnswer);
         tools.add(undoEdits);
         tools.add(clear);
         tools.add(close);
-        root.add(tools, BorderLayout.EAST);
+        root.add(Ui.centerVertically(tools), BorderLayout.EAST);
         return root;
     }
 
@@ -261,9 +271,35 @@ public final class AiPanel extends JPanel {
         JPanel root = new JPanel();
         root.setBackground(Theme.PANEL);
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
-        root.setBorder(new EmptyBorder(8, 12, 10, 12));
+        root.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(8, 12, 10, 12)));
+
+        JPanel statusRow = new JPanel(new BorderLayout(6, 0));
+        statusRow.setOpaque(false);
+        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        statusRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+        JPanel statusLeft = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        statusLeft.setOpaque(false);
+        statusLeft.add(statusDot);
+        statusLeft.add(working);
+        statusLeft.add(status);
+        statusRow.add(statusLeft, BorderLayout.CENTER);
+
+        retry.setIcon(Icons.icon("refresh", Theme.BLUE, 11));
+        retry.setIconTextGap(4);
+        retry.setFont(Theme.font(9, Font.BOLD));
+        retry.setBorder(new EmptyBorder(2, 7, 2, 7));
+        retry.setForeground(Theme.BLUE);
+        retry.setEnabled(false);
+        retry.setVisible(false);
+        retry.addActionListener(e -> retryRequest());
+        statusRow.add(retry, BorderLayout.EAST);
+        root.add(statusRow);
+        root.add(Box.createVerticalStrut(6));
 
         prompt.setFont(Theme.font(12, Font.PLAIN));
+        prompt.setOpaque(false);
         prompt.setBackground(Theme.PANEL_2);
         prompt.setForeground(Theme.TEXT);
         prompt.setCaretColor(Theme.ACCENT);
@@ -271,91 +307,87 @@ public final class AiPanel extends JPanel {
         prompt.setSelectedTextColor(Theme.TEXT);
         prompt.setLineWrap(true);
         prompt.setWrapStyleWord(true);
-        prompt.setBorder(new EmptyBorder(8, 10, 8, 10));
+        prompt.setBorder(new EmptyBorder(9, 11, 7, 11));
         prompt.setToolTipText(t("Enter: send  •  Shift+Enter: new line"));
         JScrollPane scroll = Ui.scroll(prompt);
         scroll.setBorder(null);
         scroll.setOpaque(false);
         scroll.getViewport().setOpaque(false);
-        scroll.setPreferredSize(new Dimension(1, 58));
-        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
+        scroll.setPreferredSize(new Dimension(1, 64));
+        scroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 64));
 
-        ChatBubble promptBox = new ChatBubble(Theme.PANEL_2, Theme.BORDER, 12);
-        promptBox.setLayout(new BorderLayout());
-        promptBox.setBorder(new EmptyBorder(2, 2, 2, 2));
-        promptBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-        promptBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, 64));
-        promptBox.add(scroll, BorderLayout.CENTER);
-
-        send.setIcon(Icons.icon("send", new Color(5, 36, 28), 16));
-        send.setBorder(new EmptyBorder(8, 9, 8, 9));
-        send.setPreferredSize(new Dimension(38, 38));
+        send.setIcon(Icons.icon("send", new Color(5, 36, 28), 15));
+        send.setBorder(new EmptyBorder(6, 8, 6, 8));
+        send.setPreferredSize(new Dimension(32, 30));
         send.setToolTipText(t("Send (Enter)"));
         send.addActionListener(e -> send());
 
-        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        statusRow.setOpaque(false);
-        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        statusRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
-        stop.setFont(Theme.font(9, Font.BOLD));
-        stop.setBorder(new EmptyBorder(2, 6, 2, 6));
-        stop.setForeground(Theme.DANGER);
+        stop.setIcon(Icons.icon("stop", Theme.DANGER, 15));
+        stop.setBorder(new EmptyBorder(6, 8, 6, 8));
+        stop.setPreferredSize(new Dimension(32, 30));
+        stop.setToolTipText(t("Durdur"));
         stop.setVisible(false);
         stop.addActionListener(e -> stopRequest());
-        retry.setFont(Theme.font(9, Font.BOLD));
-        retry.setBorder(new EmptyBorder(2, 6, 2, 6));
-        retry.setForeground(Theme.BLUE);
-        retry.setEnabled(false);
-        retry.addActionListener(e -> retryRequest());
-        statusRow.add(working);
-        statusRow.add(status);
-        statusRow.add(retry);
-        statusRow.add(stop);
-        root.add(statusRow);
-        root.add(Box.createVerticalStrut(5));
-
-        JPanel inputRow = new JPanel(new BorderLayout(6, 0));
-        inputRow.setOpaque(false);
-        inputRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        inputRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 68));
-        inputRow.add(promptBox, BorderLayout.CENTER);
-        JPanel sendWrap = new JPanel(new GridBagLayout());
-        sendWrap.setOpaque(false);
-        sendWrap.add(send);
-        inputRow.add(sendWrap, BorderLayout.EAST);
-        root.add(inputRow);
-        root.add(Box.createVerticalStrut(6));
 
         Ui.styleCombo(providerCombo);
         Ui.styleCombo(modelCombo);
-        providerCombo.setFont(Theme.font(11, Font.PLAIN));
-        modelCombo.setFont(Theme.font(11, Font.PLAIN));
+        providerCombo.setFont(Theme.font(10, Font.BOLD));
+        modelCombo.setFont(Theme.font(10, Font.PLAIN));
         modelCombo.setEditable(true);
         styleComboEditor(modelCombo);
         styleCombo(providerCombo);
         styleCombo(modelCombo);
         providerCombo.setToolTipText(t("Provider"));
         modelCombo.setToolTipText(t("You can type any model supported by the provider."));
-        JPanel modelRow = new JPanel(new GridLayout(1, 2, 7, 0));
-        modelRow.setOpaque(false);
-        modelRow.add(providerCombo);
-        modelRow.add(modelCombo);
+        providerCombo.setPreferredSize(new Dimension(118, 28));
+        modelCombo.setPreferredSize(new Dimension(150, 28));
+
         JButton refreshModels = iconOnly("refresh", t("Modelleri Yenile"));
+        refreshModels.setPreferredSize(new Dimension(28, 28));
         refreshModels.addActionListener(e -> refreshModels(refreshModels));
-        JPanel modelBar = new JPanel(new BorderLayout(5, 0));
-        modelBar.setOpaque(false);
-        modelBar.setAlignmentX(Component.LEFT_ALIGNMENT);
-        modelBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
-        modelBar.add(modelRow, BorderLayout.CENTER);
-        modelBar.add(refreshModels, BorderLayout.EAST);
-        root.add(modelBar);
-        root.add(Box.createVerticalStrut(4));
+
+        JPanel modelPair = new JPanel(new GridLayout(1, 2, 5, 0));
+        modelPair.setOpaque(false);
+        modelPair.add(providerCombo);
+        modelPair.add(modelCombo);
+
+        JPanel composerControls = new JPanel(new BorderLayout(6, 0));
+        composerControls.setOpaque(false);
+        composerControls.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(6, 8, 6, 8)));
+        JPanel leftControls = new JPanel(new BorderLayout(5, 0));
+        leftControls.setOpaque(false);
+        leftControls.add(modelPair, BorderLayout.CENTER);
+        leftControls.add(refreshModels, BorderLayout.EAST);
+        composerControls.add(leftControls, BorderLayout.CENTER);
+
+        JPanel rightControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        rightControls.setOpaque(false);
+        rightControls.add(stop);
+        rightControls.add(send);
+        composerControls.add(rightControls, BorderLayout.EAST);
+
+        ComposerBox composerCard = new ComposerBox(Theme.PANEL_2, 14);
+        composerCard.setLayout(new BorderLayout());
+        composerCard.setAlignmentX(Component.LEFT_ALIGNMENT);
+        composerCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 114));
+        composerCard.add(scroll, BorderLayout.CENTER);
+        composerCard.add(composerControls, BorderLayout.SOUTH);
+        prompt.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusGained(java.awt.event.FocusEvent e) { composerCard.setFocused(true); }
+            @Override public void focusLost(java.awt.event.FocusEvent e) { composerCard.setFocused(false); }
+        });
+        root.add(composerCard);
+        root.add(Box.createVerticalStrut(6));
 
         JPanel bottomRow = new JPanel(new BorderLayout(8, 0));
         bottomRow.setOpaque(false);
         bottomRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         bottomRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 18));
         bottomRow.add(Ui.label(t("Enter: send  •  Shift+Enter: new line"), 9, Font.PLAIN, Theme.MUTED), BorderLayout.WEST);
+        usageLabel.setIcon(Icons.icon("bolt", Theme.MUTED, 11));
+        usageLabel.setIconTextGap(3);
         usageLabel.setToolTipText(t("Approximate cost based on public list prices."));
         bottomRow.add(usageLabel, BorderLayout.EAST);
         root.add(bottomRow);
@@ -378,13 +410,19 @@ public final class AiPanel extends JPanel {
         return button;
     }
 
+    private void setStatus(String text, Color color) {
+        status.setText(text);
+        status.setForeground(color);
+        statusDot.setColor(color);
+        statusDot.setVisible(!busy);
+    }
+
     private void stopRequest() {
         AiClient.cancelActive();
         if (activeWorker != null) activeWorker.cancel(true);
         stop.setEnabled(false);
         working.stop();
-        status.setText(t("Durduruluyor..."));
-        status.setForeground(Theme.MUTED);
+        setStatus(t("Durduruluyor..."), Theme.MUTED);
         updateSendState();
     }
 
@@ -395,7 +433,9 @@ public final class AiPanel extends JPanel {
     }
 
     private void updateSendState() {
+        send.setVisible(!busy);
         send.setEnabled(!busy && !prompt.getText().trim().isEmpty());
+        stop.setVisible(busy);
     }
 
     public void reviewProject() {
@@ -488,8 +528,7 @@ public final class AiPanel extends JPanel {
         AiConfig snapshot = config.copy();
         snapshot.setProvider(provider);
         button.setEnabled(false);
-        status.setText(t("Modeller okunuyor..."));
-        status.setForeground(Theme.MUTED);
+        setStatus(t("Modeller okunuyor..."), Theme.MUTED);
         SwingWorker<List<String>, Void> worker = new SwingWorker<>() {
             @Override protected List<String> doInBackground() throws Exception {
                 return AiClient.listModels(snapshot);
@@ -499,8 +538,7 @@ public final class AiPanel extends JPanel {
                 try {
                     List<String> models = get();
                     if (models.isEmpty()) {
-                        status.setText(t("No models returned by provider."));
-                        status.setForeground(Theme.WARNING);
+                        setStatus(t("No models returned by provider."), Theme.WARNING);
                         return;
                     }
                     config = AiConfig.load();
@@ -511,12 +549,10 @@ public final class AiPanel extends JPanel {
                     config.setModel(provider, current);
                     config.save();
                     if (sameProvider) loadModels();
-                    status.setText(t("%d model bulundu.", models.size()));
-                    status.setForeground(Theme.ACCENT);
+                    setStatus(t("%d model bulundu.", models.size()), Theme.ACCENT);
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() == null ? ex : ex.getCause();
-                    status.setText(t("Modeller okunamadı: %s", cause.getMessage()));
-                    status.setForeground(Theme.DANGER);
+                    setStatus(t("Modeller okunamadı: %s", cause.getMessage()), Theme.DANGER);
                 }
             }
         };
@@ -537,9 +573,14 @@ public final class AiPanel extends JPanel {
     private void updateKeyStatus() {
         AiProvider provider = (AiProvider) providerCombo.getSelectedItem();
         if (provider == null) provider = config.provider();
+        String activeModel = currentComboText(modelCombo);
+        if (activeModel.isBlank()) activeModel = config.model(provider);
+        String headerSub = provider.displayName() + (activeModel.isBlank() ? "" : " · " + activeModel);
+        if (headerSub.length() > 36) headerSub = headerSub.substring(0, 33) + "…";
+        headerModel.setText(headerSub);
         boolean ready = !provider.requiresKey() || config.hasKey(provider);
-        status.setText(ready ? t("Ready.") : t("No API key configured. Open Settings and add one."));
-        status.setForeground(ready ? Theme.ACCENT : Theme.WARNING);
+        setStatus(ready ? t("Ready.") : t("No API key configured. Open Settings and add one."),
+                ready ? Theme.ACCENT : Theme.WARNING);
     }
 
     private void showWelcome() {
@@ -553,40 +594,61 @@ public final class AiPanel extends JPanel {
         JPanel card = new JPanel();
         card.setOpaque(false);
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
+        card.setBorder(new EmptyBorder(16, 18, 16, 18));
 
-        JLabel icon = new JLabel(Icons.icon("ai", Theme.ACCENT, 38));
-        icon.setAlignmentX(Component.CENTER_ALIGNMENT);
-        JLabel title = Ui.label(t("eLuajs AI"), 23, Font.BOLD, Theme.TEXT);
+        IconBadge emblem = new IconBadge("ai", Theme.ACCENT, 52, 26);
+        emblem.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel title = Ui.label(t("eLuajs AI"), 20, Font.BOLD, Theme.TEXT);
         title.setAlignmentX(Component.CENTER_ALIGNMENT);
-        JLabel subtitle = Ui.label(t("Ask me to inspect or change the project. Files are updated automatically."), 11, Font.PLAIN, Theme.MUTED);
+        JLabel subtitle = new JLabel("<html><div style='text-align:center;width:290px;'>"
+                + t("Ask me to inspect or change the project. Files are updated automatically.")
+                + "</div></html>");
+        subtitle.setFont(Theme.font(11, Font.PLAIN));
+        subtitle.setForeground(Theme.MUTED);
+        subtitle.setHorizontalAlignment(SwingConstants.CENTER);
         subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
-        card.add(icon);
-        card.add(Box.createVerticalStrut(9));
-        card.add(title);
-        card.add(Box.createVerticalStrut(6));
-        card.add(subtitle);
-        card.add(Box.createVerticalStrut(16));
 
-        JPanel chips = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 6));
-        chips.setOpaque(false);
-        welcomeChip(chips, t("Inspect project"), t("Inspect the project and summarize its structure."));
-        welcomeChip(chips, t("Fix a problem"), t("Find and fix any obvious errors in the project."));
-        welcomeChip(chips, t("Add a new screen"), t("Create a new Android activity screen for this project."));
-        card.add(chips);
+        card.add(emblem);
+        card.add(Box.createVerticalStrut(10));
+        card.add(title);
+        card.add(Box.createVerticalStrut(5));
+        card.add(subtitle);
+        card.add(Box.createVerticalStrut(18));
+
+        JPanel starters = new JPanel();
+        starters.setOpaque(false);
+        starters.setLayout(new BoxLayout(starters, BoxLayout.Y_AXIS));
+        starters.setAlignmentX(Component.CENTER_ALIGNMENT);
+        welcomeCard(starters, "eye", Theme.BLUE, t("Inspect project"), t("Project structure & key files"),
+                t("Inspect the project and summarize its structure."));
+        starters.add(Box.createVerticalStrut(7));
+        welcomeCard(starters, "wrench", Theme.WARNING, t("Fix a problem"), t("Find and fix obvious bugs"),
+                t("Find and fix any obvious errors in the project."));
+        starters.add(Box.createVerticalStrut(7));
+        welcomeCard(starters, "page-plus", Theme.ACCENT, t("Add a new screen"), t("Activity, XML layout & Manifest"),
+                t("Create a new Android activity screen for this project."));
+        starters.add(Box.createVerticalStrut(7));
+        welcomeCard(starters, "shield", new Color(181, 140, 255), t("Review code"), t("Check Android compatibility"),
+                "/review");
+        card.add(starters);
+        card.add(Box.createVerticalStrut(14));
+
+        JLabel slashHint = Ui.label("/fix  •  /explain  •  /page  •  /review", 9, Font.PLAIN, Theme.MUTED);
+        slashHint.setAlignmentX(Component.CENTER_ALIGNMENT);
+        card.add(slashHint);
         root.add(card);
         return root;
     }
 
-    private void welcomeChip(JPanel row, String label, String promptText) {
-        JButton chip = Ui.button(label, false);
-        chip.setFont(Theme.font(10, Font.BOLD));
-        chip.setBorder(new EmptyBorder(6, 9, 6, 9));
-        chip.addActionListener(e -> {
+    private void welcomeCard(JPanel parent, String iconName, Color accent, String title, String desc, String promptText) {
+        PromptCard btn = new PromptCard(iconName, accent, title, desc);
+        btn.setAlignmentX(Component.CENTER_ALIGNMENT);
+        btn.addActionListener(e -> {
             prompt.setText(promptText);
             prompt.requestFocusInWindow();
             updateSendState();
         });
-        row.add(chip);
+        parent.add(btn);
     }
 
     private void newChat() {
@@ -594,6 +656,9 @@ public final class AiPanel extends JPanel {
         history.clear();
         sessionId = null;
         lastPrompt = "";
+        failedPrompt = null;
+        retry.setEnabled(false);
+        retry.setVisible(false);
         lastUndo = new LinkedHashMap<>();
         lastCheckpoint = null;
         lastAnswerText = "";
@@ -608,8 +673,7 @@ public final class AiPanel extends JPanel {
         updateUsageLabel();
         conversation.revalidate();
         conversation.repaint();
-        status.setText(t("Ready."));
-        status.setForeground(Theme.ACCENT);
+        setStatus(t("Ready."), Theme.ACCENT);
         updateSendState();
         showWelcome();
         updateKeyStatus();
@@ -627,6 +691,9 @@ public final class AiPanel extends JPanel {
         sessionId = session.id();
         chatCards.show(chatArea, "chat");
         lastPrompt = "";
+        failedPrompt = null;
+        retry.setEnabled(false);
+        retry.setVisible(false);
         for (AiMessage message : session.messages()) {
             boolean user = "user".equalsIgnoreCase(message.role());
             addBubble(user, message.content(), false);
@@ -644,8 +711,7 @@ public final class AiPanel extends JPanel {
         sessionCost = 0;
         contextTokensEstimate = 0;
         updateUsageLabel();
-        status.setText(t("Restored chat: %s", session.title()));
-        status.setForeground(Theme.MUTED);
+        setStatus(t("Restored chat: %s", session.title()), Theme.MUTED);
         SwingUtilities.invokeLater(this::scrollToBottom);
     }
 
@@ -739,8 +805,7 @@ public final class AiPanel extends JPanel {
         if (provider.requiresKey() && !config.hasKey(provider)) {
             chatCards.show(chatArea, "chat");
             addBubble(false, t("No API key configured. Open Settings and add one."), true);
-            status.setText(t("No API key configured. Open Settings and add one."));
-            status.setForeground(Theme.WARNING);
+            setStatus(t("No API key configured. Open Settings and add one."), Theme.WARNING);
             return;
         }
         if (beforeSend != null) beforeSend.run();
@@ -749,8 +814,8 @@ public final class AiPanel extends JPanel {
         lastPrompt = text;
         failedPrompt = null;
         retry.setEnabled(false);
+        retry.setVisible(false);
         stop.setEnabled(true);
-        stop.setVisible(true);
         addBubble(true, text, false);
         history.add(AiMessage.user(text));
         while (history.size() > MAX_HISTORY_MESSAGES) history.remove(0);
@@ -760,8 +825,7 @@ public final class AiPanel extends JPanel {
         busy = true;
         updateSendState();
         working.start();
-        status.setText(t("Thinking..."));
-        status.setForeground(Theme.MUTED);
+        setStatus(t("Thinking..."), Theme.MUTED);
 
         JTextArea streamArea = new JTextArea();
         JComponent pending = addStreamingBubble(streamArea);
@@ -787,19 +851,16 @@ public final class AiPanel extends JPanel {
                     String list = shortList(event.paths());
                     switch (event.kind()) {
                         case READ -> {
-                            status.setText(t("Reading: %s", list));
-                            status.setForeground(Theme.BLUE);
-                            addSystemNote(t("Reading: %s", list));
+                            setStatus(t("Reading: %s", list), Theme.BLUE);
+                            addSystemNote("eye", Theme.BLUE, t("Reading: %s", list));
                         }
                         case WRITE -> {
-                            status.setText(t("Writing: %s", list));
-                            status.setForeground(Theme.ACCENT);
-                            addSystemNote(t("Updated: %s", list));
+                            setStatus(t("Writing: %s", list), Theme.ACCENT);
+                            addSystemNote("edit", Theme.ACCENT, t("Updated: %s", list));
                         }
                         case DELETE -> {
-                            status.setText(t("Deleting: %s", list));
-                            status.setForeground(Theme.DANGER);
-                            addSystemNote(t("Deleted: %s", list));
+                            setStatus(t("Deleting: %s", list), Theme.DANGER);
+                            addSystemNote("trash", Theme.DANGER, t("Deleted: %s", list));
                         }
                     }
                 }
@@ -812,8 +873,7 @@ public final class AiPanel extends JPanel {
                 working.stop();
                 updateSendState();
                 if (isCancelled()) {
-                    status.setText(t("Durduruldu"));
-                    status.setForeground(Theme.MUTED);
+                    setStatus(t("Durduruldu"), Theme.MUTED);
                     conversation.revalidate();
                     conversation.repaint();
                     scrollToBottom();
@@ -832,7 +892,7 @@ public final class AiPanel extends JPanel {
                     sessionTotal += result.totalTokens();
                     sessionCost += result.cost();
                     if (result.totalTokens() > 0) {
-                        addSystemNote(t("%s in / %s out • ~%s",
+                        addSystemNote("bolt", Theme.MUTED, t("%s in / %s out • ~%s",
                                 AiPricing.formatTokens(result.promptTokens()),
                                 AiPricing.formatTokens(result.completionTokens()),
                                 AiPricing.formatCost(result.cost())));
@@ -841,11 +901,10 @@ public final class AiPanel extends JPanel {
                     if (result.filesChanged() && afterFilesChanged != null) {
                         SwingUtilities.invokeLater(afterFilesChanged);
                     } else if (!result.filesChanged() && looksLikeChangeRequest(lastPrompt)) {
-                        addSystemNote(t("No files were changed."));
+                        addSystemNote("about", Theme.MUTED, t("No files were changed."));
                     }
                     updateUsageLabel();
-                    status.setText(t("Ready."));
-                    status.setForeground(Theme.ACCENT);
+                    setStatus(t("Ready."), Theme.ACCENT);
                 } catch (Exception ex) {
                     Throwable cause = ex.getCause() == null ? ex : ex.getCause();
                     if (!history.isEmpty() && "user".equals(history.get(history.size() - 1).role())) {
@@ -853,11 +912,12 @@ public final class AiPanel extends JPanel {
                     }
                     saveSession();
                     failedPrompt = lastPrompt;
-                    retry.setEnabled(failedPrompt != null && !failedPrompt.isBlank());
+                    boolean canRetry = failedPrompt != null && !failedPrompt.isBlank();
+                    retry.setEnabled(canRetry);
+                    retry.setVisible(canRetry);
                     String friendly = AiErrors.friendly(cause);
                     addBubble(false, t("Request failed: %s", friendly), true);
-                    status.setText(t("Request failed: %s", friendly));
-                    status.setForeground(Theme.DANGER);
+                    setStatus(t("Request failed: %s", friendly), Theme.DANGER);
                 }
                 conversation.revalidate();
                 conversation.repaint();
@@ -1348,13 +1408,11 @@ public final class AiPanel extends JPanel {
                     ProjectCheckpoints.restore(projectRoot, lastCheckpoint);
                     lastCheckpoint = null;
                     undoEdits.setEnabled(false);
-                    addSystemNote(t("AI edits undone."));
-                    status.setText(t("AI edits undone."));
-                    status.setForeground(Theme.ACCENT);
+                    addSystemNote("undo", Theme.ACCENT, t("AI edits undone."));
+                    setStatus(t("AI edits undone."), Theme.ACCENT);
                     if (afterFilesChanged != null) afterFilesChanged.run();
                 } catch (Exception ex) {
-                    status.setText(t("Undo failed: %s", ex.getMessage()));
-                    status.setForeground(Theme.DANGER);
+                    setStatus(t("Undo failed: %s", ex.getMessage()), Theme.DANGER);
                 }
             }
             return;
@@ -1371,12 +1429,10 @@ public final class AiPanel extends JPanel {
         lastUndo = new LinkedHashMap<>();
         undoEdits.setEnabled(false);
         if (errors.isEmpty()) {
-            addSystemNote(t("AI edits undone."));
-            status.setText(t("AI edits undone."));
-            status.setForeground(Theme.ACCENT);
+            addSystemNote("undo", Theme.ACCENT, t("AI edits undone."));
+            setStatus(t("AI edits undone."), Theme.ACCENT);
         } else {
-            status.setText(t("Undo failed: %s", String.join("; ", errors)));
-            status.setForeground(Theme.DANGER);
+            setStatus(t("Undo failed: %s", String.join("; ", errors)), Theme.DANGER);
         }
         invalidateIndex();
         if (afterFilesChanged != null) afterFilesChanged.run();
@@ -1678,6 +1734,13 @@ public final class AiPanel extends JPanel {
         });
     }
 
+    private int bubbleContentWidth(boolean user) {
+        int vp = conversationScroll != null ? conversationScroll.getViewport().getWidth() : 0;
+        int avail = vp > 220 ? vp - 36 : 396;
+        return user ? Math.max(200, Math.min(340, (int) (avail * 0.78)))
+                : Math.max(250, avail - 26);
+    }
+
     private JComponent addStreamingBubble(JTextArea area) {
         area.setEditable(false);
         area.setOpaque(false);
@@ -1685,29 +1748,50 @@ public final class AiPanel extends JPanel {
         area.setFont(Theme.font(12, Font.PLAIN));
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
-        area.setBorder(new EmptyBorder(0, 0, 0, 0));
-        ChatBubble bubble = new ChatBubble(Theme.CONSOLE, Theme.BORDER_SOFT, 12);
-        bubble.setLayout(new BorderLayout());
-        bubble.setBorder(new EmptyBorder(8, 10, 8, 10));
-        bubble.add(area, BorderLayout.CENTER);
-        bubble.setMaximumSize(new Dimension(AI_TEXT_WIDTH, Integer.MAX_VALUE));
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        row.setOpaque(false);
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        row.add(bubble);
-        conversation.add(row);
-        conversation.add(Box.createVerticalStrut(8));
+        area.setBorder(new EmptyBorder(2, 0, 0, 0));
+
+        ChatBubble card = new ChatBubble(Theme.PANEL, Theme.BORDER_SOFT, 12);
+        card.setLayout(new BorderLayout(0, 6));
+        card.setBorder(new EmptyBorder(10, 12, 10, 12));
+        card.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel head = new JPanel(new BorderLayout(6, 0));
+        head.setOpaque(false);
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        left.setOpaque(false);
+        left.add(new IconBadge("ai", Theme.ACCENT, 20, 11));
+        left.add(Ui.label("eLuajs AI", 10, Font.BOLD, Theme.TEXT));
+        String activeModel = currentComboText(modelCombo);
+        if (!activeModel.isBlank()) {
+            String shortModel = activeModel.length() > 26 ? activeModel.substring(0, 23) + "…" : activeModel;
+            left.add(Ui.label(shortModel, 9, Font.PLAIN, Theme.MUTED));
+        }
+        WorkingIndicator liveDots = new WorkingIndicator();
+        liveDots.start();
+        head.add(left, BorderLayout.WEST);
+        head.add(liveDots, BorderLayout.EAST);
+
+        card.add(head, BorderLayout.NORTH);
+        card.add(area, BorderLayout.CENTER);
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+
+        JPanel wrap = new JPanel(new BorderLayout());
+        wrap.setOpaque(false);
+        wrap.setAlignmentX(Component.LEFT_ALIGNMENT);
+        wrap.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        wrap.add(card, BorderLayout.CENTER);
+        conversation.add(wrap);
+        conversation.add(Box.createVerticalStrut(10));
         trimConversation();
         conversation.revalidate();
         conversation.repaint();
         scrollToBottom();
-        return row;
+        return wrap;
     }
 
     private JComponent addBubble(boolean user, String text, boolean error) {
         if (text == null) text = "";
-        int width = user ? USER_TEXT_WIDTH : AI_TEXT_WIDTH;
+        int width = bubbleContentWidth(user);
         JPanel content = new JPanel();
         content.setOpaque(false);
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
@@ -1715,49 +1799,167 @@ public final class AiPanel extends JPanel {
         Color textColor = user ? Theme.TEXT : (error ? Theme.DANGER : Theme.TEXT_SOFT);
         for (Segment segment : segments(text)) {
             if (segment.code()) {
-                ChatBubble codeBox = new ChatBubble(Theme.CONSOLE, Theme.BORDER_SOFT, 8);
-                codeBox.setLayout(new BorderLayout());
-                codeBox.setBorder(new EmptyBorder(7, 9, 7, 9));
-                codeBox.setAlignmentX(Component.LEFT_ALIGNMENT);
-                WrapArea area = new WrapArea(segment.text(), width - 22, Theme.mono(11),
-                        error ? Theme.DANGER : (Theme.isLight() ? new Color(22, 101, 52) : new Color(152, 195, 121)));
-                codeBox.add(area, BorderLayout.CENTER);
-                content.add(codeBox);
+                content.add(buildCodeBlock(segment.lang(), segment.text(), width - 8, error));
                 content.add(Box.createVerticalStrut(6));
             } else {
-                String clean = cleanInlineMarkdown(segment.text().strip());
-                if (clean.isBlank()) continue;
-                WrapArea area = new WrapArea(clean, width, Theme.font(12, Font.PLAIN), textColor);
-                area.setAlignmentX(Component.LEFT_ALIGNMENT);
-                content.add(area);
+                String raw = segment.text().strip();
+                if (raw.isBlank()) continue;
+                if (user || error) {
+                    WrapArea area = new WrapArea(cleanInlineMarkdown(raw), width, Theme.font(12, Font.PLAIN), textColor);
+                    area.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    content.add(area);
+                } else {
+                    RichText rich = new RichText(markdownToHtml(raw, textColor, width), width);
+                    rich.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    content.add(rich);
+                }
                 content.add(Box.createVerticalStrut(4));
             }
         }
 
-        JPanel row = new JPanel(new FlowLayout(user ? FlowLayout.RIGHT : FlowLayout.LEFT, 0, 0));
-        row.setOpaque(false);
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+        JPanel row;
         if (user) {
-            ChatBubble bubble = new ChatBubble(Theme.ACCENT_DARK, Theme.isLight() ? Theme.BORDER : new Color(41, 118, 96), 14);
+            row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            row.setOpaque(false);
+            row.setAlignmentX(Component.LEFT_ALIGNMENT);
+            Color userFill = Theme.isLight()
+                    ? new Color(Theme.ACCENT.getRed(), Theme.ACCENT.getGreen(), Theme.ACCENT.getBlue(), 34)
+                    : Theme.ACCENT_DARK;
+            Color userStroke = new Color(Theme.ACCENT.getRed(), Theme.ACCENT.getGreen(), Theme.ACCENT.getBlue(),
+                    Theme.isLight() ? 105 : 85);
+            ChatBubble bubble = new ChatBubble(userFill, userStroke, 14);
             bubble.setLayout(new BorderLayout());
-            bubble.setBorder(new EmptyBorder(9, 12, 9, 12));
+            bubble.setBorder(new EmptyBorder(9, 13, 9, 13));
             bubble.add(content, BorderLayout.CENTER);
-            bubble.setMaximumSize(new Dimension(width + 24, Integer.MAX_VALUE));
+            bubble.setMaximumSize(new Dimension(width + 28, Integer.MAX_VALUE));
             row.add(bubble);
         } else {
-            content.setMaximumSize(new Dimension(width + 8, Integer.MAX_VALUE));
-            row.add(content);
+            row = new JPanel(new BorderLayout());
+            row.setOpaque(false);
+            row.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+            Color fill = error
+                    ? (Theme.isLight() ? new Color(255, 241, 242) : new Color(40, 20, 24))
+                    : Theme.PANEL;
+            Color stroke = error
+                    ? new Color(Theme.DANGER.getRed(), Theme.DANGER.getGreen(), Theme.DANGER.getBlue(), 110)
+                    : Theme.BORDER_SOFT;
+            ChatBubble card = new ChatBubble(fill, stroke, 12);
+            card.setLayout(new BorderLayout(0, 6));
+            card.setBorder(new EmptyBorder(10, 12, 10, 12));
+
+            JPanel head = new JPanel(new BorderLayout(6, 0));
+            head.setOpaque(false);
+            JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+            left.setOpaque(false);
+            left.add(new IconBadge(error ? "alert" : "ai", error ? Theme.DANGER : Theme.ACCENT, 20, 11));
+            left.add(Ui.label(error ? t("Error") : "eLuajs AI", 10, Font.BOLD, error ? Theme.DANGER : Theme.TEXT));
+            if (!error) {
+                String activeModel = currentComboText(modelCombo);
+                if (!activeModel.isBlank()) {
+                    String shortModel = activeModel.length() > 24 ? activeModel.substring(0, 21) + "…" : activeModel;
+                    left.add(Ui.label(shortModel, 9, Font.PLAIN, Theme.MUTED));
+                }
+            }
+            head.add(left, BorderLayout.WEST);
+
+            if (!error && !text.isBlank()) {
+                final String copyValue = text;
+                JButton copyBtn = new JButton(Icons.icon("copy", Theme.MUTED, 12));
+                copyBtn.setToolTipText(t("Copy"));
+                copyBtn.setFocusPainted(false);
+                copyBtn.setBorderPainted(false);
+                copyBtn.setContentAreaFilled(false);
+                copyBtn.setOpaque(false);
+                copyBtn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                copyBtn.setBorder(new EmptyBorder(2, 4, 2, 4));
+                copyBtn.addActionListener(e -> {
+                    copyToClipboard(copyValue);
+                    copyBtn.setIcon(Icons.icon("check", Theme.ACCENT, 12));
+                    Timer reset = new Timer(1400, ev -> copyBtn.setIcon(Icons.icon("copy", Theme.MUTED, 12)));
+                    reset.setRepeats(false);
+                    reset.start();
+                });
+                head.add(copyBtn, BorderLayout.EAST);
+            }
+
+            card.add(head, BorderLayout.NORTH);
+            card.add(content, BorderLayout.CENTER);
+            row.add(card, BorderLayout.CENTER);
         }
+
         Dimension rowPref = row.getPreferredSize();
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(1, rowPref.height)));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(1, rowPref.height + 4)));
         conversation.add(row);
-        conversation.add(Box.createVerticalStrut(8));
+        conversation.add(Box.createVerticalStrut(10));
         trimConversation();
         conversation.revalidate();
         conversation.repaint();
         scrollToBottom();
         return row;
+    }
+
+    private JComponent buildCodeBlock(String lang, String code, int width, boolean error) {
+        String label = (lang == null || lang.isBlank()) ? "code" : lang.trim();
+        ChatBubble box = new ChatBubble(Theme.BG, Theme.BORDER, 9);
+        box.setLayout(new BorderLayout());
+        box.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel bar = new JPanel(new BorderLayout(6, 0));
+        bar.setBackground(Theme.PANEL_2);
+        bar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER_SOFT),
+                new EmptyBorder(4, 9, 4, 7)));
+        JLabel langLabel = Ui.label(label, 9, Font.BOLD, Theme.MUTED);
+        langLabel.setIcon(Icons.icon("code", Theme.ACCENT, 11));
+        langLabel.setIconTextGap(5);
+        bar.add(langLabel, BorderLayout.WEST);
+
+        JButton copyCode = new JButton(t("Copy"));
+        copyCode.setIcon(Icons.icon("copy", Theme.MUTED, 11));
+        copyCode.setIconTextGap(4);
+        copyCode.setFont(Theme.font(9, Font.BOLD));
+        copyCode.setForeground(Theme.MUTED);
+        copyCode.setFocusPainted(false);
+        copyCode.setBorderPainted(false);
+        copyCode.setContentAreaFilled(false);
+        copyCode.setOpaque(false);
+        copyCode.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        copyCode.setBorder(new EmptyBorder(1, 5, 1, 5));
+        copyCode.addActionListener(e -> {
+            copyToClipboard(code);
+            copyCode.setText(t("Copied."));
+            copyCode.setForeground(Theme.ACCENT);
+            copyCode.setIcon(Icons.icon("check", Theme.ACCENT, 11));
+            Timer reset = new Timer(1400, ev -> {
+                copyCode.setText(t("Copy"));
+                copyCode.setForeground(Theme.MUTED);
+                copyCode.setIcon(Icons.icon("copy", Theme.MUTED, 11));
+            });
+            reset.setRepeats(false);
+            reset.start();
+        });
+        bar.add(copyCode, BorderLayout.EAST);
+
+        JPanel codeWrap = new JPanel(new BorderLayout());
+        codeWrap.setOpaque(false);
+        codeWrap.setBorder(new EmptyBorder(8, 10, 8, 10));
+        Color codeFg = error ? Theme.DANGER
+                : (Theme.isLight() ? new Color(22, 101, 52) : new Color(158, 212, 152));
+        WrapArea area = new WrapArea(code == null ? "" : code.stripTrailing(), Math.max(180, width - 20),
+                Theme.mono(11), codeFg);
+        codeWrap.add(area, BorderLayout.CENTER);
+
+        box.add(bar, BorderLayout.NORTH);
+        box.add(codeWrap, BorderLayout.CENTER);
+        return box;
+    }
+
+    private static void copyToClipboard(String text) {
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(text == null ? "" : text), null);
+        } catch (Exception ignored) { }
     }
 
     private static String shortList(List<String> paths) {
@@ -1766,19 +1968,24 @@ public final class AiPanel extends JPanel {
     }
 
     private void addSystemNote(String text) {
+        addSystemNote("about", Theme.MUTED, text);
+    }
+
+    private void addSystemNote(String iconName, Color accent, String text) {
         JPanel row = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         row.setOpaque(false);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        ChatBubble chip = new ChatBubble(Theme.PANEL_2, Theme.BORDER_SOFT, 10);
-        chip.setLayout(new BorderLayout());
-        chip.setBorder(new EmptyBorder(4, 9, 4, 9));
-        chip.add(Ui.label(text, 9, Font.ITALIC, Theme.MUTED), BorderLayout.CENTER);
+        ChatBubble chip = new ChatBubble(Theme.PANEL_2, Theme.BORDER_SOFT, 12);
+        chip.setLayout(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        chip.setBorder(new EmptyBorder(4, 9, 4, 10));
+        chip.add(new JLabel(Icons.icon(iconName, accent, 11)));
+        chip.add(Ui.label(text, 9, Font.PLAIN, Theme.TEXT_SOFT));
         row.add(chip);
         Dimension pref = row.getPreferredSize();
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(1, pref.height)));
         conversation.add(row);
-        conversation.add(Box.createVerticalStrut(5));
+        conversation.add(Box.createVerticalStrut(6));
         trimConversation();
         conversation.revalidate();
         conversation.repaint();
@@ -1794,15 +2001,15 @@ public final class AiPanel extends JPanel {
 
     private List<Segment> segments(String text) {
         List<Segment> out = new ArrayList<>();
-        Matcher m = CODE_BLOCK.matcher(text);
+        Matcher m = FENCED_SEGMENT.matcher(text);
         int last = 0;
         while (m.find()) {
-            if (m.start() > last) out.add(new Segment(text.substring(last, m.start()), false));
-            out.add(new Segment(m.group(1), true));
+            if (m.start() > last) out.add(new Segment(text.substring(last, m.start()), false, ""));
+            out.add(new Segment(m.group(2), true, m.group(1)));
             last = m.end();
         }
-        if (last < text.length()) out.add(new Segment(text.substring(last), false));
-        if (out.isEmpty()) out.add(new Segment(text, false));
+        if (last < text.length()) out.add(new Segment(text.substring(last), false, ""));
+        if (out.isEmpty()) out.add(new Segment(text, false, ""));
         return out;
     }
 
@@ -1815,17 +2022,30 @@ public final class AiPanel extends JPanel {
 
     private static String markdownToHtml(String text, Color color, int width) {
         String html = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        String codeColor = Theme.isLight() ? "#0f766e" : "#7ee0b8";
+        String headingColor = String.format("#%02x%02x%02x", Theme.TEXT.getRed(), Theme.TEXT.getGreen(), Theme.TEXT.getBlue());
+        List<String> codeSpans = new ArrayList<>();
+        Matcher codeMatcher = Pattern.compile("`([^`]+)`").matcher(html);
+        StringBuffer sb = new StringBuffer();
+        while (codeMatcher.find()) {
+            String token = "\u0000CODE" + codeSpans.size() + "\u0000";
+            codeSpans.add("<font face=\"Monospaced\" color=\"" + codeColor + "\">" + codeMatcher.group(1) + "</font>");
+            codeMatcher.appendReplacement(sb, Matcher.quoteReplacement(token));
+        }
+        codeMatcher.appendTail(sb);
+        html = sb.toString();
         html = html.replaceAll("\\*\\*(.+?)\\*\\*", "<b>$1</b>");
         html = html.replaceAll("~~(.+?)~~", "<strike>$1</strike>");
         html = html.replaceAll("(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)", "<i>$1</i>");
-        html = html.replaceAll("`([^`]+)`", "<font face=\"Monospaced\" color=\"#98c379\">$1</font>");
-        html = html.replaceAll("(?m)^\\s*#{1,6}\\s+(.+)$", "<b>$1</b>");
+        html = html.replaceAll("(?m)^\\s*#{1,6}\\s+(.+)$", "<b style='color:" + headingColor + "'>$1</b>");
         html = html.replaceAll("(?m)^\\s*[-*]\\s+", "• ");
         html = html.replace("**", "").replace("~~", "");
         html = html.replace("\r\n", "\n").replace("\n", "<br>");
+        for (int i = 0; i < codeSpans.size(); i++) {
+            html = html.replace("\u0000CODE" + i + "\u0000", codeSpans.get(i));
+        }
         String hex = String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
-        return "<html><body style='margin:0;width:" + Math.max(80, width - 4)
-                + "px;font-family:SansSerif;font-size:12px;color:" + hex + "'>" + html + "</body></html>";
+        return "<html><body style='margin:0;padding:0;color:" + hex + ";'>" + html + "</body></html>";
     }
 
     private record ReadRequest(String path, int start, int end) {}
@@ -1841,22 +2061,169 @@ public final class AiPanel extends JPanel {
         static final EditOutcome NONE = new EditOutcome(false, "", false);
     }
     private enum EventKind { READ, WRITE, DELETE }
-    private record Segment(String text, boolean code) { }
+    private record Segment(String text, boolean code, String lang) { }
+
+    private static final class ScrollableChatPanel extends JPanel implements Scrollable {
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) { return 18; }
+        @Override public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return Math.max(40, visibleRect.height - 24);
+        }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
+    }
+
+    private static final class PlaceholderTextArea extends JTextArea {
+        private final String placeholder;
+        PlaceholderTextArea(String placeholder) { this.placeholder = placeholder; }
+        @Override protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (getText().isEmpty() && placeholder != null && !placeholder.isEmpty()) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g2.setFont(getFont());
+                g2.setColor(Theme.MUTED);
+                Insets in = getInsets();
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(placeholder, in.left + 1, in.top + fm.getAscent());
+                g2.dispose();
+            }
+        }
+    }
+
+    private static final class ComposerBox extends JPanel {
+        private final Color fill;
+        private final int radius;
+        private boolean focused;
+        ComposerBox(Color fill, int radius) {
+            this.fill = fill;
+            this.radius = radius;
+            setOpaque(false);
+        }
+        void setFocused(boolean focused) { this.focused = focused; repaint(); }
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(fill);
+            g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+            g2.setColor(focused ? Theme.ACCENT : Theme.BORDER);
+            g2.setStroke(new BasicStroke(focused ? 1.4f : 1.0f));
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, radius, radius);
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
+
+    private static final class IconBadge extends JComponent {
+        private final String iconName;
+        private final Color accent;
+        private final int boxSize;
+        private final int iconSize;
+        IconBadge(String iconName, Color accent, int boxSize, int iconSize) {
+            this.iconName = iconName;
+            this.accent = accent;
+            this.boxSize = boxSize;
+            this.iconSize = iconSize;
+            setOpaque(false);
+            Dimension d = new Dimension(boxSize, boxSize);
+            setPreferredSize(d);
+            setMinimumSize(d);
+            setMaximumSize(d);
+        }
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int r = Math.max(8, boxSize / 3);
+            g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 34));
+            g2.fillRoundRect(0, 0, boxSize, boxSize, r, r);
+            g2.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 95));
+            g2.drawRoundRect(0, 0, boxSize - 1, boxSize - 1, r, r);
+            Icons.draw(g2, iconName, (boxSize - iconSize) / 2, (boxSize - iconSize) / 2, iconSize, accent);
+            g2.dispose();
+        }
+    }
+
+    private static final class StatusDot extends JComponent {
+        private Color color = Theme.ACCENT;
+        StatusDot() {
+            setOpaque(false);
+            Dimension d = new Dimension(8, 8);
+            setPreferredSize(d);
+            setMinimumSize(d);
+            setMaximumSize(d);
+        }
+        void setColor(Color c) { this.color = c == null ? Theme.MUTED : c; repaint(); }
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.fillOval(1, 1, 6, 6);
+            g2.dispose();
+        }
+    }
+
+    private static final class PromptCard extends JButton {
+        private final String iconName;
+        private final Color accent;
+        PromptCard(String iconName, Color accent, String title, String subtitle) {
+            this.iconName = iconName;
+            this.accent = accent;
+            setLayout(new BorderLayout(10, 0));
+            setBorder(new EmptyBorder(9, 11, 9, 11));
+            setOpaque(false);
+            setContentAreaFilled(false);
+            setBorderPainted(false);
+            setFocusPainted(false);
+            setRolloverEnabled(true);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setPreferredSize(new Dimension(326, 48));
+            setMaximumSize(new Dimension(346, 48));
+
+            add(new IconBadge(iconName, accent, 30, 15), BorderLayout.WEST);
+            JPanel text = new JPanel();
+            text.setOpaque(false);
+            text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+            JLabel tLabel = Ui.label(title, 11, Font.BOLD, Theme.TEXT);
+            tLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            JLabel sLabel = Ui.label(subtitle, 9, Font.PLAIN, Theme.MUTED);
+            sLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            text.add(tLabel);
+            text.add(Box.createVerticalStrut(1));
+            text.add(sLabel);
+            add(text, BorderLayout.CENTER);
+            add(new JLabel(Icons.icon("arrow-right", Theme.MUTED, 13)), BorderLayout.EAST);
+        }
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            boolean hover = getModel().isRollover();
+            boolean pressed = getModel().isPressed();
+            g2.setColor(pressed ? Theme.PANEL_HOVER : (hover ? Theme.PANEL_2 : Theme.PANEL));
+            g2.fillRoundRect(0, 0, getWidth(), getHeight(), 10, 10);
+            g2.setColor(hover ? new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 120) : Theme.BORDER_SOFT);
+            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 10, 10);
+            g2.dispose();
+            super.paintComponent(g);
+        }
+    }
 
     private static final class RichText extends JEditorPane {
         RichText(String html, int width) {
             setContentType("text/html");
-            setText(html);
+            putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
+            setFont(Theme.font(12, Font.PLAIN));
             setEditable(false);
             setOpaque(false);
             setBorder(null);
             setFocusable(true);
-            putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
-            setSize(width, Integer.MAX_VALUE);
+            setSelectionColor(Theme.SELECTION);
+            setSelectedTextColor(Theme.TEXT);
+            setText(html);
+            setSize(new Dimension(width, Short.MAX_VALUE));
             Dimension d = getPreferredSize();
-            int height = Math.max(1, d.height);
+            int height = Math.max(1, d.height + 2);
             setPreferredSize(new Dimension(width, height));
-            setMaximumSize(new Dimension(width, height));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
         }
     }
 
@@ -1867,7 +2234,9 @@ public final class AiPanel extends JPanel {
             setForeground(foreground);
             setOpaque(false);
             setEditable(false);
-            setFocusable(false);
+            setFocusable(true);
+            setSelectionColor(Theme.SELECTION);
+            setSelectedTextColor(Theme.TEXT);
             setLineWrap(true);
             setWrapStyleWord(true);
             setBorder(null);
@@ -1915,6 +2284,7 @@ public final class AiPanel extends JPanel {
         }
         void start() { phase = 0; setVisible(true); timer.start(); }
         void stop() { timer.stop(); setVisible(false); repaint(); }
+        @Override public void removeNotify() { timer.stop(); super.removeNotify(); }
         @Override protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);

@@ -4223,6 +4223,42 @@ public final class I18n {
         ruT("No models returned by provider.", "Провайдер не вернул ни одной модели.");
         ruT("Model not found on this provider. Click Refresh Models or choose another model.",
                 "Модель не найдена у этого провайдера. Нажмите Обновить модели или выберите другую модель.");
+        tr("Ask eLuajs AI… (/fix, /explain, /review)", "eLuajs AI'ya sor… (/fix, /explain, /review)");
+        tr("Project structure & key files", "Proje yapısı ve önemli dosyalar");
+        tr("Find and fix obvious bugs", "Belirgin hataları bul ve düzelt");
+        tr("Activity, XML layout & Manifest", "Activity, XML layout ve Manifest");
+        tr("Review code", "Kodu incele");
+        tr("Check Android compatibility", "Android uyumluluğu ve sorunları kontrol et");
+        tr("Copy", "Kopyala");
+        tr("Error", "Hata");
+        deT("Ask eLuajs AI… (/fix, /explain, /review)", "Frag eLuajs AI… (/fix, /explain, /review)");
+        deT("Project structure & key files", "Projektstruktur & wichtige Dateien");
+        deT("Find and fix obvious bugs", "Offensichtliche Fehler finden & beheben");
+        deT("Activity, XML layout & Manifest", "Activity, XML-Layout & Manifest");
+        deT("Review code", "Code prüfen");
+        deT("Check Android compatibility", "Android-Kompatibilität prüfen");
+        deT("Copy", "Kopieren");
+        frT("Ask eLuajs AI… (/fix, /explain, /review)", "Demander à eLuajs AI… (/fix, /explain, /review)");
+        frT("Project structure & key files", "Structure du projet et fichiers clés");
+        frT("Find and fix obvious bugs", "Trouver et corriger les bugs évidents");
+        frT("Activity, XML layout & Manifest", "Activity, layout XML et Manifest");
+        frT("Review code", "Examiner le code");
+        frT("Check Android compatibility", "Vérifier la compatibilité Android");
+        frT("Copy", "Copier");
+        esT("Ask eLuajs AI… (/fix, /explain, /review)", "Pregunta a eLuajs AI… (/fix, /explain, /review)");
+        esT("Project structure & key files", "Estructura del proyecto y archivos clave");
+        esT("Find and fix obvious bugs", "Buscar y corregir errores obvios");
+        esT("Activity, XML layout & Manifest", "Activity, diseño XML y Manifest");
+        esT("Review code", "Revisar código");
+        esT("Check Android compatibility", "Comprobar compatibilidad con Android");
+        esT("Copy", "Copiar");
+        ruT("Ask eLuajs AI… (/fix, /explain, /review)", "Спросите eLuajs AI… (/fix, /explain, /review)");
+        ruT("Project structure & key files", "Структура проекта и ключевые файлы");
+        ruT("Find and fix obvious bugs", "Найти и исправить очевидные ошибки");
+        ruT("Activity, XML layout & Manifest", "Activity, XML-разметка и Manifest");
+        ruT("Review code", "Проверить код");
+        ruT("Check Android compatibility", "Проверить совместимость с Android");
+        ruT("Copy", "Копировать");
     }
 
 }

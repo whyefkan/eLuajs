@@ -132,7 +132,7 @@ public final class HubFrame extends JFrame {
         bar.add(logoWrap);
         bar.add(Box.createVerticalStrut(14));
 
-        Ui.ActivityButton projects = Ui.activityButton("files", t("Projeler"), () -> sidebarList.requestFocusInWindow());
+        Ui.ActivityButton projects = Ui.activityButton("projects", t("Projeler"), () -> sidebarList.requestFocusInWindow());
         projects.setActive(true);
         bar.add(projects);
         bar.add(Box.createVerticalStrut(4));
@@ -169,11 +169,11 @@ public final class HubFrame extends JFrame {
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         actions.setOpaque(false);
-        JButton add = compact("＋", t("Yeni proje"));
+        JButton add = compactIcon("plus", t("Yeni proje"));
         add.addActionListener(e -> newProject());
-        JButton importProject = compact("↓", t("Proje İçe Aktar"));
+        JButton importProject = compactIcon("import", t("Proje İçe Aktar"));
         importProject.addActionListener(e -> importProject());
-        JButton refresh = compact("⟳", t("Yenile"));
+        JButton refresh = compactIcon("refresh", t("Yenile"));
         refresh.addActionListener(e -> refresh());
         actions.add(add);
         actions.add(importProject);
@@ -223,6 +223,14 @@ public final class HubFrame extends JFrame {
         return side;
     }
 
+    private JButton compactIcon(String iconName, String tooltip) {
+        JButton b = Ui.button("", false);
+        b.setIcon(Icons.icon(iconName, Theme.TEXT_SOFT, 14));
+        b.setToolTipText(tooltip);
+        b.setBorder(new EmptyBorder(6, 7, 6, 7));
+        return b;
+    }
+
     private JButton compact(String text, String tooltip) {
         JButton b = Ui.button(text, false);
         b.setToolTipText(tooltip);
@@ -259,10 +267,11 @@ public final class HubFrame extends JFrame {
         heroText.setOpaque(false);
         heroText.setLayout(new BoxLayout(heroText, BoxLayout.Y_AXIS));
 
-        JPanel titleLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        JPanel titleLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         titleLine.setOpaque(false);
         titleLine.setAlignmentX(Component.LEFT_ALIGNMENT);
         titleLine.add(Ui.label("eLuajs", 32, Font.BOLD, Theme.TEXT));
+        titleLine.add(Box.createHorizontalStrut(10));
         titleLine.add(projectCount);
         heroText.add(titleLine);
         heroText.add(Box.createVerticalStrut(8));
@@ -282,17 +291,17 @@ public final class HubFrame extends JFrame {
         JPanel quick = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         quick.setOpaque(false);
         quick.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JButton create = Ui.button("＋  " + t("Yeni Proje"), true);
-        create.setPreferredSize(new Dimension(150, 40));
+        JButton create = Ui.iconButton(t("Yeni Proje"), "plus", true);
+        create.setPreferredSize(new Dimension(156, 40));
         create.addActionListener(e -> newProject());
-        JButton importProject = Ui.button("↓  " + t("İçe Aktar"), false);
+        JButton importProject = Ui.iconButton(t("İçe Aktar"), "import", false);
         importProject.setPreferredSize(new Dimension(150, 40));
         importProject.addActionListener(e -> importProject());
-        JButton folder = Ui.button("▦  " + t("Projeler Klasörü"), false);
-        folder.setPreferredSize(new Dimension(165, 40));
+        JButton folder = Ui.iconButton(t("Projeler Klasörü"), "folder", false);
+        folder.setPreferredSize(new Dimension(172, 40));
         folder.addActionListener(e -> openProjectsFolder());
-        JButton reload = Ui.button("⟳  " + t("Yenile"), false);
-        reload.setPreferredSize(new Dimension(110, 40));
+        JButton reload = Ui.iconButton(t("Yenile"), "refresh", false);
+        reload.setPreferredSize(new Dimension(118, 40));
         reload.addActionListener(e -> refresh());
         quick.add(create);
         quick.add(importProject);
@@ -416,10 +425,11 @@ public final class HubFrame extends JFrame {
         info.setOpaque(false);
         info.setLayout(new BoxLayout(info, BoxLayout.Y_AXIS));
 
-        JPanel titleLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        JPanel titleLine = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         titleLine.setOpaque(false);
         titleLine.setAlignmentX(Component.LEFT_ALIGNMENT);
         titleLine.add(Ui.label(meta.appName(), 27, Font.BOLD, Theme.TEXT));
+        titleLine.add(Box.createHorizontalStrut(10));
         titleLine.add(Ui.badge("v" + meta.versionName(), Theme.BLUE));
         info.add(titleLine);
         info.add(Box.createVerticalStrut(7));
@@ -439,22 +449,29 @@ public final class HubFrame extends JFrame {
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         actions.setOpaque(false);
         actions.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JButton open = Ui.button(t("Projeyi Aç  →"), true);
-        open.setPreferredSize(new Dimension(158, 40));
+        JButton open = Ui.iconButton(t("Projeyi Aç"), "arrow-right", true);
+        open.setHorizontalTextPosition(SwingConstants.LEADING);
+        open.setPreferredSize(new Dimension(164, 40));
         open.addActionListener(e -> openProject(meta));
-        JButton folder = Ui.button("▦  " + t("Klasörü Aç"), false);
-        folder.setPreferredSize(new Dimension(145, 40));
+        JButton folder = Ui.iconButton(t("Klasörü Aç"), "folder", false);
+        folder.setPreferredSize(new Dimension(150, 40));
         folder.addActionListener(e -> openFolder(meta.rootDir()));
         boolean managed = store.isManaged(meta);
         JButton del = Ui.dangerButton(managed ? t("Sil") : t("Listeden Kaldır"));
-        del.setPreferredSize(new Dimension(managed ? 74 : 140, 40));
+        del.setIcon(Icons.icon("trash", Theme.DANGER, 14));
+        del.setIconTextGap(6);
+        del.setBorder(new EmptyBorder(9, 13, 9, 13));
+        del.setPreferredSize(new Dimension(Math.max(managed ? 104 : 162, del.getPreferredSize().width + 8), 40));
         del.addActionListener(e -> delete(meta));
-        JButton favorite = Ui.button(ProjectFavorites.isFavorite(meta.rootDir()) ? "★" : "☆", false);
-        favorite.setPreferredSize(new Dimension(44, 40));
-        favorite.setToolTipText(ProjectFavorites.isFavorite(meta.rootDir()) ? t("Favorilerden çıkar") : t("Favorilere ekle"));
+        boolean fav = ProjectFavorites.isFavorite(meta.rootDir());
+        JButton favorite = Ui.button("", false);
+        favorite.setIcon(Icons.icon(fav ? "star-filled" : "star", fav ? Theme.WARNING : Theme.MUTED, 16));
+        favorite.setPreferredSize(new Dimension(42, 40));
+        favorite.setBorder(new EmptyBorder(8, 8, 8, 8));
+        favorite.setToolTipText(fav ? t("Favorilerden çıkar") : t("Favorilere ekle"));
         favorite.addActionListener(e -> {
             boolean added = ProjectFavorites.toggle(meta.rootDir());
-            favorite.setText(added ? "★" : "☆");
+            favorite.setIcon(Icons.icon(added ? "star-filled" : "star", added ? Theme.WARNING : Theme.MUTED, 16));
             favorite.setToolTipText(added ? t("Favorilerden çıkar") : t("Favorilere ekle"));
             refresh();
         });
@@ -483,7 +500,7 @@ public final class HubFrame extends JFrame {
         hint.setAlignmentX(Component.LEFT_ALIGNMENT);
         hint.setBorder(new EmptyBorder(12, 15, 12, 15));
         hint.setMaximumSize(new Dimension(Integer.MAX_VALUE, 56));
-        hint.add(Ui.label("▶", 15, Font.PLAIN, Theme.ACCENT), BorderLayout.WEST);
+        hint.add(new JLabel(Icons.icon("run", Theme.ACCENT, 15)), BorderLayout.WEST);
         hint.add(Ui.label(t("APK / AAB almak için projeyi aç ve üstteki Derle düğmesini kullan."), 11, Font.PLAIN, Theme.TEXT_SOFT), BorderLayout.CENTER);
         body.add(hint);
         return scroll(body);
